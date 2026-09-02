@@ -21,7 +21,7 @@ if not (os.path.exists(_venv_marker) or os.path.exists(_venv_marker_parent) or h
 
 from src.ocr_config import configure_tesseract
 from src.yolo_detector import get_yolo_detector
-from src.pdf_processor import PDFProcessor, process_book
+from src.pdf_processor import PDFProcessor, process_book, is_figure_or_table
 from src.qa_engine import answer_question
 from src.storage import (
     clear_cache,
@@ -262,27 +262,19 @@ if uploaded_file is not None:
                 )
                 st.markdown(source_badges, unsafe_allow_html=True)
 
-            # Relevant Images & Visual Figures
-            if qa_result.get("figures") or qa_result.get("images"):
+            # Relevant Images & Visual Figures (strictly Figures, Tables, or Images)
+            figures = [f for f in qa_result.get("figures", []) if is_figure_or_table(f)]
+            if figures:
                 st.markdown("#### 🖼️ Associated Figures & Diagrams")
-                figures = qa_result.get("figures", [])
-                
-                if figures:
-                    cols = st.columns(min(len(figures), 3))
-                    for idx, fig in enumerate(figures[:3]):
-                        img_path = fig.get("image_path")
-                        if img_path and os.path.exists(img_path):
-                            label = fig.get("figure_label", "")
-                            cap = fig.get("caption", "")
-                            cap_display = f"**{label}**: {cap}" if label and cap else (cap or label)
-                            with cols[idx % len(cols)]:
-                                st.image(img_path, caption=cap_display, use_container_width=True)
-                elif qa_result.get("images"):
-                    cols = st.columns(min(len(qa_result["images"]), 3))
-                    for idx, img_p in enumerate(qa_result["images"][:3]):
-                        if os.path.exists(img_p):
-                            with cols[idx % len(cols)]:
-                                st.image(img_p, caption=Path(img_p).name, use_container_width=True)
+                cols = st.columns(min(len(figures), 3))
+                for idx, fig in enumerate(figures[:3]):
+                    img_path = fig.get("image_path")
+                    if img_path and os.path.exists(img_path):
+                        label = fig.get("figure_label", "")
+                        cap = fig.get("caption", "")
+                        cap_display = f"**{label}**: {cap}" if label and cap else (cap or label)
+                        with cols[idx % len(cols)]:
+                            st.image(img_path, caption=cap_display, use_container_width=True)
 
             # Visual Evidence / Original Page Inspection
             if qa_result["evidence"]:

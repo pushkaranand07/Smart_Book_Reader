@@ -477,6 +477,27 @@ def score_figure_relevance(
     return round(composite, 2), components
 
 
+def is_figure_or_table(fig: Dict[str, Any]) -> bool:
+    """Return True only if the visual explicitly represents a Figure, Table, or Image.
+    Rejects decorative photos, background banners, and ocean images.
+    """
+    if not isinstance(fig, dict):
+        return False
+    label = (fig.get("figure_label") or "").lower()
+    caption = (fig.get("caption") or "").lower()
+    fid = str(fig.get("figure_id") or "").lower()
+    desc = (fig.get("description") or "").lower()
+    text_sig = f"{label} {caption} {fid} {desc}"
+
+    # Explicitly reject decorative/ocean photos
+    if "ocean" in text_sig:
+        return False
+
+    # Must contain the word 'figure', 'fig', 'table', or 'image'
+    keywords = ["figure", "fig", "table", "image"]
+    return any(k in text_sig for k in keywords)
+
+
 def find_figures_for_query(
     page_results: List[Any],
     query: str,
@@ -500,6 +521,9 @@ def find_figures_for_query(
 
         for fig in p_figs:
             fig_copy = dict(fig) if isinstance(fig, dict) else fig.to_dict()
+            if not is_figure_or_table(fig_copy):
+                continue
+
             rel_score, components = score_figure_relevance(fig_copy, query_terms, query, p_text)
             if rel_score >= min_score:
                 fig_copy["relevance_score"] = rel_score

@@ -3,7 +3,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.search import extract_meaningful_keywords, search_pages
-from src.pdf_processor import find_figures_for_query, extract_meaningful_terms
+from src.pdf_processor import find_figures_for_query, extract_meaningful_terms, is_figure_or_table
 
 BOOK_QA_SYSTEM_PROMPT = """You are an intelligent, expert Book AI tutor and assistant.
 Your goal is to provide clear, thorough, accurate, and insightful answers to the user's questions based on the uploaded book excerpts.
@@ -328,7 +328,8 @@ def answer_question(
                 p_figs = p.get("figures", []) if isinstance(p, dict) else getattr(p, "figures", [])
                 for f in p_figs:
                     f_dict = dict(f) if isinstance(f, dict) else (f.to_dict() if hasattr(f, "to_dict") else f)
-                    candidate_figures.append(f_dict)
+                    if is_figure_or_table(f_dict):
+                        candidate_figures.append(f_dict)
 
     # b) Global multi-signal figure search across entire book
     global_ranked_figures, confidence_margin, is_ambiguous = find_figures_for_query(
@@ -338,7 +339,18 @@ def answer_question(
         min_score=15.0,
     )
     for f in global_ranked_figures:
-        candidate_figures.append(f)
+        if is_figure_or_table(f):
+            candidate_figures.append(f)
+
+    # Deduplicate candidate figures
+    deduped_candidates: List[Dict[str, Any]] = []
+    seen_fids = set()
+    for f in candidate_figures:
+        fid = f.get("figure_id")
+        if fid not in seen_fids:
+            seen_fids.add(fid)
+            deduped_candidates.append(f)
+    candidate_figures = deduped_candidates
 
     # 4. LLM Visual Selection & Ranking (or Heuristic Fallback)
     if resolved_api_key and candidate_figures:
@@ -349,9 +361,12 @@ def answer_question(
             max_figures=3,
         )
     else:
-        selected_figures = global_ranked_figures[:3]
+        selected_figures = [f for f in global_ranked_figures if is_figure_or_table(f)][:3]
 
-    # Collect valid distinct image paths
+    # Final strict verification: only retain visuals explicitly representing Figure, Table, or Image
+    selected_figures = [f for f in selected_figures if is_figure_or_table(f)]
+
+    # Collect valid distinct image paths strictly from verified figures/tables
     collected_images = []
     for fig in selected_figures:
         img_p = fig.get("image_path")
