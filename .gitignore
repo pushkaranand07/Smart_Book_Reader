@@ -1,0 +1,32 @@
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Temporary & cache data
+data/uploads/*
+!data/uploads/.gitkeep
+data/extracted/*
+!data/extracted/.gitkeep
+data/images/*
+!data/images/.gitkeep
+data/pages/*
+!data/pages/.gitkeep
+
+# Environment variables & keys
+.env
+*.env.local
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Ultralytics & model cache
+*.pt
+runs/
