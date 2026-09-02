@@ -5,6 +5,7 @@ Orchestrates document classification and routes each page strictly to:
 2. Scanned Pipeline (`ScannedPipeline`): For scanned/image pages using Tesseract OCR & OpenCV contour extraction.
 """
 
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
