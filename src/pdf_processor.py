@@ -20,11 +20,14 @@ from src.scanned_pipeline import ScannedPipeline
 from src.storage import IMAGES_DIR, ensure_directories, sanitize_filename
 from src.yolo_detector import YOLOVisualDetector
 
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 # --- Constants & Quality Thresholds ---
 _MIN_IMAGE_PIXELS = 5_000          # Min pixel area for content images
 _MIN_STDDEV = 2.0                  # Min stddev to reject blank / solid-color masks
 _MIN_TINT_STDDEV_SUM = 12.0        # Min total channel variance to reject uncaptioned tint/background boxes
-_RENDER_DPI = 200                  # DPI for high-quality diagram/vector crops
+_RENDER_DPI = 150                  # DPI for high-quality diagram/vector crops (optimized for speed)
 _PAD_PT = 20.0                     # Padding around bounding box in points
 
 
@@ -146,7 +149,7 @@ class PDFProcessor:
     def __init__(
         self,
         min_char_threshold: int = 40,
-        ocr_dpi: int = 300,
+        ocr_dpi: int = 150,
         render_dpi: int = _RENDER_DPI,
     ):
         self.min_char_threshold = min_char_threshold
@@ -189,8 +192,6 @@ class PDFProcessor:
         cleaned_text = " ".join(extracted_text.split())
         meaningful_char_count = len(cleaned_text)
 
-        preview_bytes = self.get_page_preview_bytes(page, dpi=120)
-
         # -------------------------------------------------------------
         # LANE 1: DIGITAL PIPELINE (Native PDF text & vector graphics)
         # -------------------------------------------------------------
@@ -215,7 +216,7 @@ class PDFProcessor:
                 ocr_applied=False,
                 ocr_time_sec=0.0,
                 confidence_note=f"Embedded digital text found ({meaningful_char_count} chars)",
-                image_bytes=preview_bytes,
+                image_bytes=None,
                 images=saved_images,
                 figures=figure_data,
                 figure_references=figure_refs,
@@ -251,7 +252,7 @@ class PDFProcessor:
             ocr_applied=True,
             ocr_time_sec=ocr_duration,
             confidence_note=confidence_note,
-            image_bytes=preview_bytes,
+            image_bytes=None,
             images=saved_images,
             figures=figure_data,
             figure_references=figure_refs,
@@ -261,32 +262,56 @@ class PDFProcessor:
         self,
         pdf_path: str | Path,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        max_workers: int = 4,
     ) -> Dict[str, Any]:
-        """Process an entire PDF file page-by-page."""
+        """Process an entire PDF file concurrently across multiple threads."""
         path_obj = Path(pdf_path)
         doc = fitz.open(str(path_obj))
         total_pages = len(doc)
+        doc.close()
         pdf_stem = sanitize_filename(path_obj.stem)
 
         start_time = time.perf_counter()
         pages_results: List[PageResult] = []
-        digital_count = 0
-        scanned_count = 0
 
-        for i, page in enumerate(doc):
-            page_num = i + 1
-            if progress_callback:
-                progress_callback(page_num, total_pages, f"Analyzing page {page_num} of {total_pages}...")
+        if total_pages <= 1:
+            doc = fitz.open(str(path_obj))
+            try:
+                res = self.process_page(doc, doc[0], 1, pdf_stem)
+                pages_results.append(res)
+                if progress_callback:
+                    progress_callback(1, 1, "Analyzing page 1 of 1...")
+            finally:
+                doc.close()
+        else:
+            num_workers = min(max_workers, total_pages, os.cpu_count() or 4)
+            completed_count = 0
 
-            result = self.process_page(doc, page, page_num, pdf_stem)
-            if result.page_type == "Digital":
-                digital_count += 1
-            else:
-                scanned_count += 1
+            def _process_single_page(p_num: int) -> PageResult:
+                t_doc = fitz.open(str(path_obj))
+                try:
+                    t_page = t_doc[p_num - 1]
+                    return self.process_page(t_doc, t_page, p_num, pdf_stem)
+                finally:
+                    t_doc.close()
 
-            pages_results.append(result)
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                futures = {executor.submit(_process_single_page, p): p for p in range(1, total_pages + 1)}
+                for future in as_completed(futures):
+                    res = future.result()
+                    pages_results.append(res)
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback(
+                            completed_count,
+                            total_pages,
+                            f"Analyzing pages ({completed_count}/{total_pages} processed)...",
+                        )
 
-        doc.close()
+            pages_results.sort(key=lambda r: r.page_number)
+
+        digital_count = sum(1 for r in pages_results if r.page_type == "Digital")
+        scanned_count = len(pages_results) - digital_count
         total_duration = round(time.perf_counter() - start_time, 2)
 
         return {
@@ -303,7 +328,7 @@ class PDFProcessor:
 def process_book(
     pdf_path: str | Path,
     min_char_threshold: int = 40,
-    ocr_dpi: int = 300,
+    ocr_dpi: int = 150,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> Dict[str, Any]:
     """Process a PDF book, handle OCR and visual figure extraction, and persist cache."""

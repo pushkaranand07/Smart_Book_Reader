@@ -1,5 +1,7 @@
-import json
 import os
+os.environ["YOLO_CONFIG_DIR"] = "/tmp"
+
+import json
 import sys
 from pathlib import Path
 import streamlit as st
@@ -131,9 +133,10 @@ with st.sidebar:
         help="Pages with fewer characters than this are rasterized and processed with OCR.",
     )
     ocr_dpi = st.select_slider(
-        "OCR Image DPI",
-        options=[150, 200, 300, 400],
-        value=300,
+        "OCR Image DPI (Speed vs Detail)",
+        options=[100, 150, 200, 300],
+        value=150,
+        help="150 DPI provides 3-4x faster OCR processing with high accuracy.",
     )
 
     st.markdown("---")

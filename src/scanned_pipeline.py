@@ -48,25 +48,32 @@ class ScannedPipeline:
         return img
 
     def run_ocr(self, pil_img: Image.Image) -> Tuple[str, float, Optional[Dict[str, Any]], str]:
-        """Perform Tesseract OCR on a rendered page image."""
+        """Perform single-pass Tesseract OCR on a rendered page image."""
         if not self.tesseract_ok:
             return "", 0.0, None, f"Tesseract unavailable: {self.tesseract_msg}"
 
         ocr_start = time.perf_counter()
         try:
-            ocr_text = pytesseract.image_to_string(pil_img).strip()
+            ocr_data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
             ocr_duration = round(time.perf_counter() - ocr_start, 2)
+
+            # Fast single-pass text reconstruction from OCR data tokens
+            lines_dict: Dict[Tuple[int, int, int], List[str]] = {}
+            for i in range(len(ocr_data['text'])):
+                t = ocr_data['text'][i].strip()
+                if not t:
+                    continue
+                k = (ocr_data['block_num'][i], ocr_data['par_num'][i], ocr_data['line_num'][i])
+                lines_dict.setdefault(k, []).append(t)
+
+            line_texts = [" ".join(words) for words in lines_dict.values()]
+            ocr_text = "\n".join(line_texts).strip()
             cleaned_ocr = " ".join(ocr_text.split())
 
             if len(cleaned_ocr) > 0:
                 note = f"OCR extracted {len(cleaned_ocr)} chars in {ocr_duration}s"
             else:
                 note = "Scanned/Image page with no readable text detected by OCR"
-
-            try:
-                ocr_data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
-            except Exception:
-                ocr_data = None
 
             return ocr_text, ocr_duration, ocr_data, note
         except Exception as e:
