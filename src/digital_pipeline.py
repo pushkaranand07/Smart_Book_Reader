@@ -22,8 +22,8 @@ from PIL import Image
 from src.storage import IMAGES_DIR
 
 CAPTION_PATTERN = re.compile(
-    r'(?:^|\n)\s*(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?|Table|Tab\.?|Chart|Activity|Diagram|Exhibit)\s*'
-    r'([0-9]+(?:\.[0-9]+)?[\w-]*)',
+    r'(?:^|\n)\s*(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?|Picture\s*[-–:]?|Diagram\s*(?:of)?|Map\s*(?:of)?|Graph\s*[-–:]?|Chart|Sketch\s*(?:of)?|Photo\s*[-–:]?|Activity\s*[0-9]*|Table\s*[0-9]*|Exhibit)\s*'
+    r'([^\n\r]{2,80})',
     re.IGNORECASE
 )
 
@@ -186,8 +186,30 @@ class DigitalPipeline:
             pass
         return valid_drawings
 
+    def _find_nearest_text_label(self, bbox: fitz.Rect, blocks: List[Any], clean_text_fn) -> str:
+        """Find the nearest text block (heading, paragraph, or label) directly above or below an image."""
+        best_dist = 9999.0
+        best_text = ""
+        for b in blocks:
+            if b[6] != 0:
+                continue
+            txt = clean_text_fn(b[4])
+            if not txt or len(txt) > 250:
+                continue
+            b_rect = fitz.Rect(b[:4])
+            if b_rect.y1 <= bbox.y0:
+                dist = bbox.y0 - b_rect.y1
+            elif b_rect.y0 >= bbox.y1:
+                dist = b_rect.y0 - bbox.y1
+            else:
+                dist = abs(b_rect.x0 - bbox.x0)
+            if dist < best_dist and dist < 140.0:
+                best_dist = dist
+                best_text = txt
+        return best_text
+
     def _detect_captions(self, blocks: List[Any], clean_text_fn) -> List[Dict[str, Any]]:
-        """Detect figure and diagram captions in digital text blocks."""
+        """Detect figure, diagram, and visual title captions in digital text blocks."""
         captions: List[Dict[str, Any]] = []
         for b in blocks:
             if b[6] != 0:  # text blocks only
@@ -198,7 +220,10 @@ class DigitalPipeline:
             if len(cleaned) <= 380:
                 match = CAPTION_PATTERN.search(raw_text) or CAPTION_PATTERN.search(cleaned)
                 if match:
-                    fig_id = match.group(1)
+                    fig_id = match.group(1).strip()
+                    fig_id = re.sub(r'^[-–:\s]+', '', fig_id).strip()
+                    if not fig_id:
+                        fig_id = f"fig_{len(captions) + 1}"
                     matched_prefix = match.group(0).strip()
                     captions.append({
                         "fig_id": fig_id,
@@ -466,6 +491,53 @@ class DigitalPipeline:
                             surrounding_context=surrounding_ctx,
                         )
                         extracted_figures.append(sub_meta)
+
+        # -------------------------------------------------------------
+        # Extract Remaining Standalone Valid Embedded Images (Zero-Context Visuals)
+        # -------------------------------------------------------------
+        claimed_rects = [
+            fitz.Rect(f["bounding_box"]) if isinstance(f, dict) else fitz.Rect(f.bounding_box)
+            for f in extracted_figures
+        ]
+
+        for v_img in valid_images:
+            r = v_img["bbox"]
+            if any(r.intersects(cr) or cr.contains(r) for cr in claimed_rects):
+                continue
+
+            pil_img = v_img["pil_img"]
+            img_idx = v_img["img_idx"]
+
+            # Locate nearest heading or paragraph label
+            nearest_label = self._find_nearest_text_label(r, blocks, clean_text_fn)
+            label_text = nearest_label if nearest_label else f"Page {page_number} Visual {img_idx}"
+
+            out_filename = f"{pdf_stem}_p{page_number}_img_{img_idx}.png"
+            out_path = IMAGES_DIR / out_filename
+            pil_img.save(str(out_path))
+            saved_image_paths.append(str(out_path))
+
+            fig_meta = figure_factory_fn(
+                figure_id=f"p{page_number}_img{img_idx}",
+                figure_label=label_text[:60],
+                subfigure_id=None,
+                caption=label_text,
+                page_number=page_number,
+                image_path=str(out_path),
+                image_filename=out_filename,
+                bounding_box=(r.x0, r.y0, r.x1, r.y1),
+                source_type="embedded_image",
+                width=pil_img.width,
+                height=pil_img.height,
+                confidence=0.85,
+                associated_keywords=extract_terms_fn(f"{label_text} {full_page_text[:300]}"),
+                labels_inside=[],
+                in_text_citations=[],
+                context=f"Page {page_number} • Visual: {label_text}",
+                surrounding_context=self._extract_nearby_context(full_page_text, label_text[:30]) if label_text else full_page_text[:300],
+            )
+            extracted_figures.append(fig_meta)
+            claimed_rects.append(r)
 
         figure_dicts = [f.to_dict() if hasattr(f, "to_dict") else f for f in extracted_figures]
         sorted_refs = sorted(list(figure_refs_found))

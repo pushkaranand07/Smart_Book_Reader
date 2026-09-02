@@ -478,8 +478,8 @@ def score_figure_relevance(
 
 
 def is_figure_or_table(fig: Dict[str, Any]) -> bool:
-    """Return True only if the visual explicitly represents a Figure, Table, or Image.
-    Rejects decorative photos, background banners, and ocean images.
+    """Return True if the visual represents an educational Figure, Table, Diagram, Map, Chart, Sketch, or Image.
+    Rejects pure decorative/ocean photos.
     """
     if not isinstance(fig, dict):
         return False
@@ -487,15 +487,22 @@ def is_figure_or_table(fig: Dict[str, Any]) -> bool:
     caption = (fig.get("caption") or "").lower()
     fid = str(fig.get("figure_id") or "").lower()
     desc = (fig.get("description") or "").lower()
-    text_sig = f"{label} {caption} {fid} {desc}"
+    context = (fig.get("context") or "").lower()
+    text_sig = f"{label} {caption} {fid} {desc} {context}"
 
-    # Explicitly reject decorative/ocean photos
+    # Explicitly reject decorative ocean/background photos
     if "ocean" in text_sig:
         return False
 
-    # Must contain the word 'figure', 'fig', 'table', or 'image'
-    keywords = ["figure", "fig", "table", "image"]
-    return any(k in text_sig for k in keywords)
+    # Accept standard educational terms and labeled textbook entities
+    keywords = [
+        "figure", "fig", "table", "image", "diagram", "map", "graph", "chart",
+        "picture", "sketch", "photo", "illustration", "roots", "leaves", "skeleton",
+        "symbol", "emblem", "flag", "circuit", "organ", "cycle", "activity", "tree",
+        "seed", "snake", "ant", "atm", "temple", "craft", "model", "experiment",
+        "joint", "bone", "venation", "flower", "fruit", "solar", "mosquito", "animal"
+    ]
+    return any(k in text_sig for k in keywords) or len(fig.get("labels_inside", [])) > 0 or bool(fig.get("source_type") in ["vector_region", "scanned_crop"])
 
 
 def find_figures_for_query(
