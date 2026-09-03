@@ -2,7 +2,10 @@
 
 Orchestrates document classification and routes each page strictly to:
 1. Digital Pipeline (`DigitalPipeline`): For native text PDFs using PyMuPDF vector & embedded visuals.
-2. Scanned Pipeline (`ScannedPipeline`): For scanned/image pages using Tesseract OCR & OpenCV contour extraction.
+2. Scanned Pipeline (`ScannedPipeline`): For scanned/image pages using EasyOCR & OpenCV contour extraction.
+
+Visual detection uses Microsoft Florence-2-base (dense region captioning + OD).
+Text retrieval uses BAAI/bge-large-en-v1.5 semantic embeddings + FAISS.
 """
 
 import os
@@ -19,7 +22,7 @@ from src.digital_pipeline import DigitalPipeline, parse_subfigures_from_caption
 from src.ocr_config import configure_tesseract
 from src.scanned_pipeline import ScannedPipeline
 from src.storage import IMAGES_DIR, ensure_directories, sanitize_filename
-from src.yolo_detector import YOLOVisualDetector
+from src.florence_detector import FlorenceVisualDetector
 
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -141,10 +144,14 @@ def extract_meaningful_terms(text: str) -> List[str]:
 # --- Main PDF Processor Orchestrator ---
 
 class PDFProcessor:
-    """Two-Lane PDF Processing Orchestrator with YOLOv8 Visual Analysis.
+    """Two-Lane PDF Processing Orchestrator with Florence-2 Visual Analysis.
 
     Inspects each page to determine if it is Digital (contains embedded font/char stream)
     or Scanned (raster image only), then executes the dedicated pipeline without mixing up extraction logic.
+
+    Visual Engine: Microsoft Florence-2-base (dense region captioning & open-vocabulary OD).
+    OCR Engine: EasyOCR (deep learning, 80+ languages) with Tesseract fallback.
+    Retrieval Engine: BAAI/bge-large-en-v1.5 + FAISS semantic search.
     """
 
     def __init__(
@@ -157,21 +164,21 @@ class PDFProcessor:
         self.ocr_dpi = ocr_dpi
         self.render_dpi = render_dpi
         self.tesseract_ok, self.tesseract_msg = configure_tesseract()
-        self.yolo_detector = YOLOVisualDetector()
+        self.visual_detector = FlorenceVisualDetector()
         ensure_directories()
 
-        # Initialize the two independent pipelines with YOLO detector integration
+        # Initialize the two independent pipelines with Florence-2 visual detector
         self.digital_pipeline = DigitalPipeline(
             render_dpi=self.render_dpi,
             pad_pt=_PAD_PT,
-            yolo_detector=self.yolo_detector,
+            visual_detector=self.visual_detector,
         )
         self.scanned_pipeline = ScannedPipeline(
             ocr_dpi=self.ocr_dpi,
             render_dpi=self.render_dpi,
             tesseract_ok=self.tesseract_ok,
             tesseract_msg=self.tesseract_msg,
-            yolo_detector=self.yolo_detector,
+            visual_detector=self.visual_detector,
         )
 
     def get_page_preview_bytes(self, page: fitz.Page, dpi: int = 120) -> bytes:
@@ -488,7 +495,8 @@ def is_figure_or_table(fig: Dict[str, Any]) -> bool:
     fid = str(fig.get("figure_id") or "").lower()
     desc = (fig.get("description") or "").lower()
     context = (fig.get("context") or "").lower()
-    text_sig = f"{label} {caption} {fid} {desc} {context}"
+    source_type = str(fig.get("source_type") or "").lower()
+    text_sig = f"{label} {caption} {fid} {desc} {context} {source_type}"
 
     # Explicitly reject decorative ocean/background photos
     if "ocean" in text_sig:
@@ -500,16 +508,23 @@ def is_figure_or_table(fig: Dict[str, Any]) -> bool:
         "picture", "sketch", "photo", "illustration", "roots", "leaves", "skeleton",
         "symbol", "emblem", "flag", "circuit", "organ", "cycle", "activity", "tree",
         "seed", "snake", "ant", "atm", "temple", "craft", "model", "experiment",
-        "joint", "bone", "venation", "flower", "fruit", "solar", "mosquito", "animal"
+        "joint", "bone", "venation", "flower", "fruit", "solar", "mosquito", "animal",
+        "thumb", "hand", "rule", "magnetic", "field", "conductor", "wire", "current",
+        "electric", "needle", "compass", "solenoid", "apparatus", "reaction", "beaker",
+        "motor", "generator", "physics", "science"
     ]
-    return any(k in text_sig for k in keywords) or len(fig.get("labels_inside", [])) > 0 or bool(fig.get("source_type") in ["vector_region", "scanned_crop"])
+    return (
+        any(k in text_sig for k in keywords)
+        or len(fig.get("labels_inside", [])) > 0
+        or bool(source_type in ["vector_region", "scanned_crop", "florence_crop", "embedded_image"])
+    )
 
 
 def find_figures_for_query(
     page_results: List[Any],
     query: str,
     top_k: int = 4,
-    min_score: float = 20.0,
+    min_score: float = 10.0,
 ) -> Tuple[List[Dict[str, Any]], float, bool]:
     """Retrieve and rank all relevant figures across the book.
 

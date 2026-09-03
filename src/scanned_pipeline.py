@@ -3,7 +3,7 @@
 Specialized exclusively for scanned image pages, photographed documents, and OCR.
 Handles:
 - High-DPI page rendering to PIL Image
-- Tesseract OCR text extraction & bounding box parsing
+- EasyOCR text extraction (primary, 80+ languages) with Tesseract fallback
 - Optical caption boundary localization
 - OpenCV morphological contour & visual diagram extraction
 - Scanned subfigure isolation
@@ -19,6 +19,8 @@ import numpy as np
 from PIL import Image
 import pytesseract
 
+from src.ocr_engine import ocr_image
+
 from src.storage import IMAGES_DIR
 
 
@@ -31,13 +33,17 @@ class ScannedPipeline:
         render_dpi: int = 200,
         tesseract_ok: bool = True,
         tesseract_msg: str = "",
-        yolo_detector: Optional[Any] = None,
+        visual_detector: Optional[Any] = None,
+        use_easyocr: bool = True,
+        ocr_languages: Optional[list] = None,
     ):
         self.ocr_dpi = ocr_dpi
         self.render_dpi = render_dpi
         self.tesseract_ok = tesseract_ok
         self.tesseract_msg = tesseract_msg
-        self.yolo_detector = yolo_detector
+        self.visual_detector = visual_detector
+        self.use_easyocr = use_easyocr
+        self.ocr_languages = ocr_languages or ["en"]
 
     def render_page_image(self, page: fitz.Page, dpi: int = 150) -> Image.Image:
         """Render a PyMuPDF page to a PIL Image at specified DPI."""
@@ -48,16 +54,41 @@ class ScannedPipeline:
         return img
 
     def run_ocr(self, pil_img: Image.Image) -> Tuple[str, float, Optional[Dict[str, Any]], str]:
-        """Perform single-pass Tesseract OCR on a rendered page image."""
+        """Perform OCR on a rendered page image using EasyOCR (primary) or Tesseract (fallback).
+
+        EasyOCR provides better accuracy (~97%) and supports 80+ languages.
+        Tesseract is used as fallback if EasyOCR is unavailable.
+        Returns: (text, duration, ocr_data_dict, note)
+        """
+        ocr_start = time.perf_counter()
+
+        # ── Primary: EasyOCR ─────────────────────────────────────────────────
+        if self.use_easyocr:
+            try:
+                import easyocr
+                easy_text = ocr_image(
+                    pil_img,
+                    prefer_easyocr=True,
+                    languages=self.ocr_languages,
+                    min_confidence=0.3,
+                )
+                ocr_duration = round(time.perf_counter() - ocr_start, 2)
+                if easy_text.strip():
+                    note = f"EasyOCR extracted {len(easy_text)} chars in {ocr_duration}s"
+                    # Build a compatible ocr_data stub for downstream box-parsing
+                    ocr_data = None  # EasyOCR path skips box-based caption detection
+                    return easy_text, ocr_duration, ocr_data, note
+            except Exception:
+                pass  # Fall through to Tesseract
+
+        # ── Fallback: Tesseract ───────────────────────────────────────────────
         if not self.tesseract_ok:
             return "", 0.0, None, f"Tesseract unavailable: {self.tesseract_msg}"
 
-        ocr_start = time.perf_counter()
         try:
             ocr_data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
             ocr_duration = round(time.perf_counter() - ocr_start, 2)
 
-            # Fast single-pass text reconstruction from OCR data tokens
             lines_dict: Dict[Tuple[int, int, int], List[str]] = {}
             for i in range(len(ocr_data['text'])):
                 t = ocr_data['text'][i].strip()
@@ -71,7 +102,7 @@ class ScannedPipeline:
             cleaned_ocr = " ".join(ocr_text.split())
 
             if len(cleaned_ocr) > 0:
-                note = f"OCR extracted {len(cleaned_ocr)} chars in {ocr_duration}s"
+                note = f"Tesseract OCR extracted {len(cleaned_ocr)} chars in {ocr_duration}s"
             else:
                 note = "Scanned/Image page with no readable text detected by OCR"
 
@@ -157,36 +188,37 @@ class ScannedPipeline:
             img_np = cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
         H, W, _ = img_np.shape
 
-        if not ocr_data or 'text' not in ocr_data:
-            return [], [], []
-
-        # Parse OCR lines & bounding boxes
         lines: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
-        for i in range(len(ocr_data['text'])):
-            t = ocr_data['text'][i].strip()
-            if not t:
-                continue
-            k = (ocr_data['block_num'][i], ocr_data['par_num'][i], ocr_data['line_num'][i])
-            if k not in lines:
-                lines[k] = {
-                    'text': [t],
-                    'box': [
-                        ocr_data['left'][i],
-                        ocr_data['top'][i],
-                        ocr_data['left'][i] + ocr_data['width'][i],
-                        ocr_data['top'][i] + ocr_data['height'][i],
-                    ],
-                }
-            else:
-                lines[k]['text'].append(t)
-                lines[k]['box'][0] = min(lines[k]['box'][0], ocr_data['left'][i])
-                lines[k]['box'][1] = min(lines[k]['box'][1], ocr_data['top'][i])
-                lines[k]['box'][2] = max(lines[k]['box'][2], ocr_data['left'][i] + ocr_data['width'][i])
-                lines[k]['box'][3] = max(lines[k]['box'][3], ocr_data['top'][i] + ocr_data['height'][i])
+        line_list: List[Dict[str, Any]] = []
+        line_boxes: List[List[int]] = []
 
-        line_list = [{'text': ' '.join(v['text']), 'box': v['box']} for v in lines.values()]
-        line_list.sort(key=lambda item: item['box'][1])
-        line_boxes = [l['box'] for l in line_list]
+        if ocr_data and 'text' in ocr_data:
+            # Parse OCR lines & bounding boxes
+            for i in range(len(ocr_data['text'])):
+                t = ocr_data['text'][i].strip()
+                if not t:
+                    continue
+                k = (ocr_data['block_num'][i], ocr_data['par_num'][i], ocr_data['line_num'][i])
+                if k not in lines:
+                    lines[k] = {
+                        'text': [t],
+                        'box': [
+                            ocr_data['left'][i],
+                            ocr_data['top'][i],
+                            ocr_data['left'][i] + ocr_data['width'][i],
+                            ocr_data['top'][i] + ocr_data['height'][i],
+                        ],
+                    }
+                else:
+                    lines[k]['text'].append(t)
+                    lines[k]['box'][0] = min(lines[k]['box'][0], ocr_data['left'][i])
+                    lines[k]['box'][1] = min(lines[k]['box'][1], ocr_data['top'][i])
+                    lines[k]['box'][2] = max(lines[k]['box'][2], ocr_data['left'][i] + ocr_data['width'][i])
+                    lines[k]['box'][3] = max(lines[k]['box'][3], ocr_data['top'][i] + ocr_data['height'][i])
+
+            line_list = [{'text': ' '.join(v['text']), 'box': v['box']} for v in lines.values()]
+            line_list.sort(key=lambda item: item['box'][1])
+            line_boxes = [l['box'] for l in line_list]
 
         saved_image_paths: List[str] = []
         extracted_figures: List[Any] = []
@@ -300,11 +332,11 @@ class ScannedPipeline:
                                 )
                                 extracted_figures.append(sub_meta)
 
-        # 2. Deep Learning YOLOv8 Visual Detection
-        if self.yolo_detector and self.yolo_detector.is_available:
+        # 2. Florence-2 Visual Region Detection
+        if self.visual_detector and self.visual_detector.is_available:
             try:
-                yolo_regions = self.yolo_detector.detect_visual_boxes(pil_page_img)
-                for yr in yolo_regions:
+                florence_regions = self.visual_detector.detect_visual_boxes(pil_page_img)
+                for yr in florence_regions:
                     yx0, yy0, yx1, yy1 = yr["bbox"]
                     overlap = False
                     for cx0, cy0, cx1, cy1 in claimed_boxes:
@@ -325,30 +357,32 @@ class ScannedPipeline:
 
                     claimed_boxes.append((yx0, yy0, yx1, yy1))
                     y_idx = len(extracted_figures) + 1
-                    out_filename = f"{pdf_stem}_p{page_number}_yolo_fig_{y_idx}.png"
+                    out_filename = f"{pdf_stem}_p{page_number}_florence_fig_{y_idx}.png"
                     out_path = IMAGES_DIR / out_filename
                     crop_pil.save(str(out_path))
                     saved_image_paths.append(str(out_path))
 
+                    florence_label = (yr.get("label") or "").strip()
                     nearby_lines = [
                         l['text'] for l in line_list
                         if abs(l['box'][1] - yy0) <= 200 or abs(l['box'][3] - yy1) <= 200
                     ]
-                    desc_text = " ".join(nearby_lines[:2]) if nearby_lines else f"Page {page_number} Visual"
+                    desc_text = florence_label if florence_label else (" ".join(nearby_lines[:2]) if nearby_lines else f"Page {page_number} Visual")
+                    fig_label = f"Figure ({florence_label[:45]})" if florence_label else f"Page {page_number} Visual"
                     fig_meta = figure_factory_fn(
-                        figure_id=f"yolo_{page_number}_{y_idx}",
-                        figure_label=f"Page {page_number} Visual",
+                        figure_id=f"florence_{page_number}_{y_idx}",
+                        figure_label=fig_label,
                         subfigure_id=None,
                         caption=desc_text,
                         page_number=page_number,
                         image_path=str(out_path),
                         image_filename=out_filename,
                         bounding_box=(yx0, yy0, yx1, yy1),
-                        source_type="yolo_crop",
+                        source_type="florence_crop",
                         width=crop_pil.width,
                         height=crop_pil.height,
-                        confidence=yr.get("confidence", 0.95),
-                        associated_keywords=extract_terms_fn(desc_text),
+                        confidence=yr.get("confidence", 0.92),
+                        associated_keywords=extract_terms_fn(f"{desc_text} {florence_label}"),
                         context=f"Page {page_number} • Visual: {desc_text}",
                     )
                     extracted_figures.append(fig_meta)

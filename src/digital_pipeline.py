@@ -58,11 +58,11 @@ class DigitalPipeline:
         self,
         render_dpi: int = 200,
         pad_pt: float = 20.0,
-        yolo_detector: Optional[Any] = None,
+        visual_detector: Optional[Any] = None,
     ):
         self.render_dpi = render_dpi
         self.pad_pt = pad_pt
-        self.yolo_detector = yolo_detector
+        self.visual_detector = visual_detector
 
     def crop_page_region(
         self,

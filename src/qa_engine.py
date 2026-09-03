@@ -360,8 +360,10 @@ def answer_question(
             api_key=resolved_api_key,
             max_figures=3,
         )
+        if not selected_figures and candidate_figures:
+            selected_figures = candidate_figures[:2]
     else:
-        selected_figures = [f for f in global_ranked_figures if is_figure_or_table(f)][:3]
+        selected_figures = candidate_figures[:3] if candidate_figures else [f for f in global_ranked_figures if is_figure_or_table(f)][:3]
 
     # Final strict verification: only retain visuals explicitly representing Figure, Table, or Image
     selected_figures = [f for f in selected_figures if is_figure_or_table(f)]

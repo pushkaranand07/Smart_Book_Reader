@@ -150,46 +150,94 @@ def search_pages(
     pages: List[Dict[str, Any]],
     query: str,
     top_k: int = 5,
+    book_id: str = "default",
 ) -> List[Dict[str, Any]]:
-    """Search pages by keyword frequency and relevance ranking.
+    """Hybrid search: combines dense semantic similarity (BGE-Large + FAISS) with keyword boosting.
+
+    Search strategy:
+        1. Semantic retrieval: encode query + page texts with BAAI/bge-large-en-v1.5,
+           search FAISS index for top-k most similar pages by cosine similarity.
+        2. Keyword boost: for each semantic result, compute a keyword overlap bonus
+           and add it to the semantic score to promote exact-match hits.
+        3. Rank by combined score and return top_k.
+
+    Falls back to keyword-only search if semantic library is unavailable.
 
     Args:
         pages: List of page dictionaries or PageResult objects.
         query: User's question or search terms.
         top_k: Maximum number of ranked pages to return (default 5).
+        book_id: Unique book identifier for FAISS index caching.
 
     Returns:
-        List of ranked page matches with scores, snippets, and images.
+        List of ranked page dicts with 'semantic_score', 'score', 'snippet'.
     """
-    keywords = extract_meaningful_keywords(query)
-    if not keywords:
+    if not query.strip() or not pages:
         return []
 
-    query_lower = query.lower().strip()
-    ranked_results = []
+    # ── 1. Semantic Retrieval ──────────────────────────────────────────────
+    try:
+        from src.semantic_search import semantic_search_pages
+        semantic_results = semantic_search_pages(
+            pages, query, top_k=top_k * 2, book_id=book_id, score_threshold=0.20
+        )
+    except Exception:
+        semantic_results = []
 
-    for page in pages:
-        p_dict = page.to_dict() if hasattr(page, "to_dict") else page
-        text = p_dict.get("text", "")
+    # ── 2. Fallback: keyword-only if semantic unavailable ─────────────────
+    if not semantic_results:
+        keywords = extract_meaningful_keywords(query)
+        if not keywords:
+            return []
+        query_lower = query.lower().strip()
+        ranked_results = []
+        for page in pages:
+            p_dict = page.to_dict() if hasattr(page, "to_dict") else page
+            text = p_dict.get("text", "")
+            text_lower = text.lower()
+            tokens = clean_and_tokenize(text)
+            score, matched_terms = _score_page(text, text_lower, tokens, keywords, query_lower)
+            if score > 0:
+                snippet = extract_snippet(text, keywords)
+                ranked_results.append({
+                    "page_number": p_dict.get("page_number", 1),
+                    "page_type": p_dict.get("page_type", "Digital"),
+                    "score": score,
+                    "semantic_score": 0.0,
+                    "matched_terms": matched_terms,
+                    "snippet": snippet,
+                    "text": text,
+                    "images": p_dict.get("images", []),
+                })
+        ranked_results.sort(key=lambda x: x["score"], reverse=True)
+        return ranked_results[:top_k]
+
+    # ── 3. Keyword Boost on Semantic Results ──────────────────────────────
+    keywords = extract_meaningful_keywords(query)
+    query_lower = query.lower().strip()
+    boosted = []
+    for page in semantic_results:
+        text = page.get("text", "")
         text_lower = text.lower()
         tokens = clean_and_tokenize(text)
+        kw_score, matched_terms = _score_page(text, text_lower, tokens, keywords, query_lower)
 
-        score, matched_terms = _score_page(text, text_lower, tokens, keywords, query_lower)
+        # Normalise keyword score to [0, 1] range with a soft cap at 30
+        kw_bonus = min(kw_score, 30) / 30.0 * 0.20   # max 0.20 boost
 
-        if score > 0:
-            snippet = extract_snippet(text, keywords)
-            images = p_dict.get("images", [])
+        semantic_score = page.get("semantic_score", 0.0)
+        combined = semantic_score + kw_bonus
 
-            ranked_results.append({
-                "page_number": p_dict.get("page_number", 1),
-                "page_type": p_dict.get("page_type", "Digital"),
-                "score": score,
-                "matched_terms": matched_terms,
-                "snippet": snippet,
-                "text": text,
-                "images": images,
-            })
+        boosted.append({
+            "page_number": page.get("page_number", 1),
+            "page_type": page.get("page_type", "Digital"),
+            "score": round(combined, 4),
+            "semantic_score": round(semantic_score, 4),
+            "matched_terms": matched_terms,
+            "snippet": page.get("snippet", text[:300]),
+            "text": text,
+            "images": page.get("images", []),
+        })
 
-    ranked_results.sort(key=lambda x: x["score"], reverse=True)
-
-    return ranked_results[:top_k]
+    boosted.sort(key=lambda x: x["score"], reverse=True)
+    return boosted[:top_k]

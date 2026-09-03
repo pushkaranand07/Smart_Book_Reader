@@ -14,7 +14,7 @@ PAGES_DIR = DATA_DIR / "pages"
 IMAGES_DIR = DATA_DIR / "images"
 
 # Bump this version whenever extraction, padding, or matching logic changes to auto-invalidate stale caches
-PIPELINE_VERSION = "v3.3"
+PIPELINE_VERSION = "v4.1"
 
 
 def get_cache_key(file_name: str, min_char_threshold: int) -> str:
