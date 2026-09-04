@@ -20,7 +20,7 @@ if not (os.path.exists(_venv_marker) or os.path.exists(_venv_marker_parent) or h
     )
 
 from src.ocr_config import configure_tesseract
-from src.yolo_detector import get_yolo_detector
+from src.florence_detector import get_florence_detector
 from src.pdf_processor import PDFProcessor, process_book, is_figure_or_table
 from src.qa_engine import answer_question
 from src.storage import (
@@ -103,16 +103,37 @@ with st.sidebar:
     st.title("Smart Book Reader")
 
     tess_ok, tess_msg = configure_tesseract()
-    if tess_ok:
-        st.success("🟢 **Tesseract OCR Ready**")
-    else:
-        st.warning(f"⚠️ **OCR Limited**\n\n{tess_msg}")
 
-    yolo_ok, _, yolo_msg = get_yolo_detector()
-    if yolo_ok:
-        st.success("🎯 **YOLOv8 Visual Engine Ready**")
+    # ── Advanced Engine Status ──────────────────────────────────────────────
+    # 1. Semantic Search (BGE-Large + FAISS)
+    try:
+        from src.semantic_search import _LOCAL_MODEL_PATH
+        import os
+        bge_ready = os.path.isdir(_LOCAL_MODEL_PATH)
+    except Exception:
+        bge_ready = False
+
+    if bge_ready:
+        st.success("🚀 **BGE-Large Semantic Search** (Local, 1024-dim)")
     else:
-        st.info("ℹ️ YOLO Visual Engine (Heuristic Fallback)")
+        st.warning("⚠️ BGE-Large not found — using keyword fallback")
+
+    # 2. Florence-2 Vision Engine
+    florence_ok, _, florence_msg = get_florence_detector()
+    if florence_ok:
+        st.success("👁️ **Florence-2 Vision Engine** (Microsoft)")
+    else:
+        st.info(f"ℹ️ Florence-2 loading... ({florence_msg[:60]})")
+
+    # 3. EasyOCR / Tesseract status
+    try:
+        import easyocr as _easyocr_check
+        st.success("📖 **EasyOCR Engine** (Deep Learning, 80+ languages)")
+    except ImportError:
+        if tess_ok:
+            st.success("🟢 **Tesseract OCR Ready** (fallback)")
+        else:
+            st.warning(f"⚠️ **OCR Limited**\n\n{tess_msg}")
 
     st.markdown("---")
     st.subheader("⚙️ Settings & Configuration")

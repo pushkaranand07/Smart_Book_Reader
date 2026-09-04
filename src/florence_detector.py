@@ -14,10 +14,8 @@ from PIL import Image
 
 from src.layout.florence_model import load_trained_model
 from src.layout.florence_processor import generate_detections
-from src.layout.paths import FLORENCE_LAYOUT_DIR, MODEL_DIR
+from src.layout.paths import FLORENCE_LAYOUT_DIR
 
-# Legacy path support
-_LEGACY_ADAPTER = MODEL_DIR / "fine_tuned_layout"
 _HUB_MODEL_ID = "microsoft/Florence-2-base"
 
 _florence_lock = threading.Lock()
@@ -29,12 +27,8 @@ _florence_status = "Florence-2 not yet initialized"
 
 
 def _resolve_adapter_dir() -> Path:
-    best = FLORENCE_LAYOUT_DIR / "best"
-    if (best / "adapter_model.safetensors").exists():
-        return best
-    if (_LEGACY_ADAPTER / "adapter_model.safetensors").exists():
-        return _LEGACY_ADAPTER
-    return best
+    """Only use the canonical Colab/train output path (no legacy adapters)."""
+    return FLORENCE_LAYOUT_DIR / "best"
 
 
 def _load_florence():

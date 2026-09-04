@@ -31,12 +31,98 @@ def load_processor(model_id: str = BASE_MODEL_ID) -> Any:
     return AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 
+def _patch_florence2_attn_flags() -> None:
+    """Florence-2 remote code lacks SDPA flags expected by newer transformers."""
+    import sys
+
+    for name, mod in list(sys.modules.items()):
+        if "modeling_florence2" not in name:
+            continue
+        cls = getattr(mod, "Florence2ForConditionalGeneration", None)
+        if cls is None:
+            continue
+        if not hasattr(cls, "_supports_sdpa"):
+            cls._supports_sdpa = False
+        if not hasattr(cls, "_supports_flash_attn_2"):
+            cls._supports_flash_attn_2 = False
+
+
+def _patch_florence2_generation_compatibility() -> None:
+    """Handle Florence remote code that dereferences an empty generation cache."""
+    import sys
+
+    for name, mod in list(sys.modules.items()):
+        if "modeling_florence2" not in name:
+            continue
+        cls = getattr(mod, "Florence2ForConditionalGeneration", None)
+        if cls is None or getattr(cls, "_smart_book_reader_generation_patch", False):
+            continue
+
+        original = cls.prepare_inputs_for_generation
+
+        def prepare_inputs_for_generation(
+            self,
+            decoder_input_ids,
+            past_key_values=None,
+            attention_mask=None,
+            decoder_attention_mask=None,
+            head_mask=None,
+            decoder_head_mask=None,
+            cross_attn_head_mask=None,
+            use_cache=None,
+            encoder_outputs=None,
+            **kwargs,
+        ):
+            if past_key_values is not None:
+                return original(
+                    self,
+                    decoder_input_ids=decoder_input_ids,
+                    past_key_values=past_key_values,
+                    attention_mask=attention_mask,
+                    decoder_attention_mask=decoder_attention_mask,
+                    head_mask=head_mask,
+                    decoder_head_mask=decoder_head_mask,
+                    cross_attn_head_mask=cross_attn_head_mask,
+                    use_cache=use_cache,
+                    encoder_outputs=encoder_outputs,
+                    **kwargs,
+                )
+            return {
+                "input_ids": None,
+                "encoder_outputs": encoder_outputs,
+                "past_key_values": None,
+                "decoder_input_ids": decoder_input_ids,
+                "attention_mask": attention_mask,
+                "decoder_attention_mask": decoder_attention_mask,
+                "head_mask": head_mask,
+                "decoder_head_mask": decoder_head_mask,
+                "cross_attn_head_mask": cross_attn_head_mask,
+                "use_cache": use_cache,
+            }
+
+        cls.prepare_inputs_for_generation = prepare_inputs_for_generation
+        cls._smart_book_reader_generation_patch = True
+
+
 def load_base_model(model_id: str = BASE_MODEL_ID, device: str | None = None) -> Tuple[Any, str]:
+    from transformers import AutoConfig
+
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float16 if device == "cuda" else torch.float32
+
+    # Load remote config/code first so we can patch class attrs before model init.
+    AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+    _patch_florence2_attn_flags()
+    _patch_florence2_generation_compatibility()
+
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, trust_remote_code=True, torch_dtype=dtype
+        model_id,
+        trust_remote_code=True,
+        torch_dtype=dtype,
+        attn_implementation="eager",
     )
+    _patch_florence2_attn_flags()
+    _patch_florence2_generation_compatibility()
     model.to(device)
     return model, device
 
@@ -128,6 +214,8 @@ def run_preflight(
                 pixel_values=inputs["pixel_values"],
                 max_new_tokens=64,
                 num_beams=1,
+                do_sample=False,
+                use_cache=False,
             )
 
         gen_text = processor.batch_decode(gen_ids, skip_special_tokens=False)[0]

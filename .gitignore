@@ -18,6 +18,18 @@ data/images/*
 !data/images/.gitkeep
 data/pages/*
 !data/pages/.gitkeep
+data/training_data/
+*.zip
+evaluation/
+runs/
+model/
+
+# Ultralytics & model cache
+*.pt
+*.safetensors
+*.bin
+*.onnx
+
 
 # Environment variables & keys
 .env
@@ -27,6 +39,3 @@ data/pages/*
 .DS_Store
 Thumbs.db
 
-# Ultralytics & model cache
-*.pt
-runs/

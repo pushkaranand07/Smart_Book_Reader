@@ -8,13 +8,13 @@ Dataset: docling-project/DocLayNet (or ds4sd/DocLayNet) on Hugging Face
 
 This script:
   1. Streams DocLayNet from Hugging Face (no full 30GB download required)
-  2. Keeps only pages that contain at least one Picture
+  2. By default keeps Picture pages; with --include-negative also keeps No-Picture pages
   3. Converts COCO xywh boxes -> xyxy pixels
   4. Writes data/training_data/{images,dataset_manifest.jsonl}
-  5. Trains Picture-only (Caption/Table/Text ignored for Florence-1 experiment)
+  5. Labels used for Florence: Picture only (Caption/Table/Text ignored)
 
 Usage:
-  .\\venv\\Scripts\\python.exe scripts\\dataset\\build_doclaynet.py --max-train 3000 --max-val 500
+    .\\venv\\Scripts\\python.exe scripts\\dataset\\build_doclaynet.py --custom-split --include-negative --max-train 30000 --max-val 10000 --max-test 5000
   .\\venv\\Scripts\\python.exe scripts\\dataset\\build_doclaynet.py --pilot
 """
 
@@ -545,9 +545,9 @@ def collect_custom_train_val(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build DocLayNet Picture training set")
     parser.add_argument("--pilot", action="store_true", help="Small set: 400 train / 100 val")
-    parser.add_argument("--max-train", type=int, default=4000)
-    parser.add_argument("--max-val", type=int, default=800)
-    parser.add_argument("--max-test", type=int, default=0, help="0 = skip test split")
+    parser.add_argument("--max-train", type=int, default=30000)
+    parser.add_argument("--max-val", type=int, default=10000)
+    parser.add_argument("--max-test", type=int, default=5000, help="0 = skip test split")
     parser.add_argument(
         "--custom-split",
         action="store_true",
