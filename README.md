@@ -233,3 +233,21 @@ tests/                  Backend regression tests
 ```
 
 Generated caches, local environments, model weights, archives, and frontend dependencies are ignored and are not part of the runtime source tree.
+
+## Deploy To Railway And Vercel
+
+Deploy the API as a Railway service from the repository root. Railway uses `railway.toml` and `Dockerfile.api` automatically.
+
+1. Create a Railway project, choose **Deploy from GitHub repo**, and select this repository.
+2. Add a Railway volume mounted at `/app/data`. This is required so uploads, extracted documents, and generated images survive deploys and restarts.
+3. Add `CORS_ORIGINS` with the Vercel production URL (for example, `https://your-project.vercel.app`). Add preview URLs separated by commas if you want Vercel previews to call the API.
+4. Optionally add `GEMINI_API_KEY` for Gemini-generated answers. Without it, the app uses its built-in offline fallback.
+5. Generate a Railway public domain and confirm that `https://YOUR-RAILWAY-DOMAIN/api/health` returns `{"status":"ok","service":"smart-book-reader"}`.
+
+Deploy the frontend as a Vercel project with **Root Directory** set to `frontend`.
+
+1. Import the same GitHub repository into Vercel and set the root directory to `frontend`.
+2. Add the `VITE_API_URL` environment variable with the full Railway public URL, without a trailing slash (for example, `https://YOUR-RAILWAY-DOMAIN`). Add it to Production and Preview if applicable.
+3. Deploy, copy the Vercel URL, and update Railway's `CORS_ORIGINS` value with that exact URL. Redeploy the Railway service after changing the variable.
+
+Vercel environment variables are embedded at build time. Redeploy the frontend whenever `VITE_API_URL` changes. Do not place secrets, including `GEMINI_API_KEY`, in Vercel variables; they belong only in Railway.

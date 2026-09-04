@@ -24,10 +24,17 @@ from src.storage import (
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BOOKS: dict[str, dict[str, Any]] = {}
 
+
+def _cors_origins() -> list[str]:
+    """Read approved browser origins from the deployment environment."""
+    configured = os.environ.get("CORS_ORIGINS", "")
+    origins = [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
+    return origins or ["http://localhost:5173", "http://127.0.0.1:5173"]
+
 app = FastAPI(title="Smart Book Reader API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
