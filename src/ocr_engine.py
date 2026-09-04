@@ -7,12 +7,14 @@ Supports 80+ languages, better accuracy on blurry/scanned pages, no system insta
 from __future__ import annotations
 
 import threading
+import logging
 from typing import List, Optional, Tuple
 
 import numpy as np
 
 _easyocr_lock = threading.Lock()
 _easyocr_reader = None
+logger = logging.getLogger(__name__)
 
 
 def _get_easyocr(lang_list: List[str] = None):
@@ -32,6 +34,7 @@ def _get_easyocr(lang_list: List[str] = None):
                     model_storage_directory=None,  # use default ~/.EasyOCR
                 )
             except Exception as e:
+                logger.exception("EasyOCR failed to initialize")
                 raise RuntimeError(f"EasyOCR failed to initialize: {e}")
     return _easyocr_reader
 
@@ -89,6 +92,7 @@ def ocr_image_tesseract(image, lang: str = "eng") -> str:
         ]
         return " ".join(words)
     except Exception:
+        logger.exception("Tesseract OCR failed")
         return ""
 
 
@@ -115,5 +119,6 @@ def ocr_image(
             if text.strip():
                 return text
         except Exception:
+            logger.exception("EasyOCR text extraction failed; using Tesseract fallback")
             pass  # Fall through to Tesseract
     return ocr_image_tesseract(image)

@@ -8,10 +8,10 @@ Dataset: docling-project/DocLayNet (or ds4sd/DocLayNet) on Hugging Face
 
 This script:
   1. Streams DocLayNet from Hugging Face (no full 30GB download required)
-  2. By default keeps Picture pages; with --include-negative also keeps No-Picture pages
+  2. Keeps only pages that contain at least one Picture
   3. Converts COCO xywh boxes -> xyxy pixels
   4. Writes data/training_data/{images,dataset_manifest.jsonl}
-  5. Labels used for Florence: Picture only (Caption/Table/Text ignored)
+  5. Trains Picture-only (Caption/Table/Text ignored for Florence-1 experiment)
 
 Usage:
     .\\venv\\Scripts\\python.exe scripts\\dataset\\build_doclaynet.py --custom-split --include-negative --max-train 30000 --max-val 10000 --max-test 5000

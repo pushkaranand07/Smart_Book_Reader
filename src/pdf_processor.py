@@ -23,6 +23,7 @@ from src.ocr_config import configure_tesseract
 from src.scanned_pipeline import ScannedPipeline
 from src.storage import IMAGES_DIR, ensure_directories, sanitize_filename
 from src.florence_detector import FlorenceVisualDetector
+from src.normalized_document import normalize_legacy_document, normalized_document_to_dict
 
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -340,7 +341,7 @@ def process_book(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> Dict[str, Any]:
     """Process a PDF book, handle OCR and visual figure extraction, and persist cache."""
-    from src.storage import save_extraction_results
+    from src.storage import hash_file, save_extraction_results
 
     processor = PDFProcessor(
         min_char_threshold=min_char_threshold,
@@ -350,6 +351,22 @@ def process_book(
 
     pages_data = [page.to_dict() for page in results["pages"]]
 
+    legacy_document = normalize_legacy_document(
+        document_id=Path(results["filename"]).stem,
+        source_path=results["filepath"],
+        filename=results["filename"],
+        legacy_pages=pages_data,
+        metadata={
+            "threshold_used": min_char_threshold,
+            "ocr_dpi": ocr_dpi,
+            "source_file_hash": hash_file(pdf_path),
+        },
+        provenance={
+            "source": "pdf_processor",
+            "adapter": "legacy_page_result_to_normalized_document",
+        },
+    )
+
     export_dict = {
         "filename": results["filename"],
         "filepath": results["filepath"],
@@ -358,7 +375,10 @@ def process_book(
         "scanned_pages": results["scanned_pages"],
         "processing_time_sec": results["processing_time_sec"],
         "threshold_used": min_char_threshold,
+        "ocr_dpi": ocr_dpi,
+        "source_file_hash": hash_file(pdf_path),
         "pages": pages_data,
+        "normalized_document": normalized_document_to_dict(legacy_document),
     }
     save_extraction_results(results["filename"], export_dict)
     return export_dict
@@ -498,6 +518,9 @@ def is_figure_or_table(fig: Dict[str, Any]) -> bool:
     source_type = str(fig.get("source_type") or "").lower()
     text_sig = f"{label} {caption} {fid} {desc} {context} {source_type}"
 
+    if re.search(r"^\s*activity\s+\d", label) or re.search(r"^\s*activity\s+\d", caption):
+        return False
+
     # Explicitly reject decorative ocean/background photos
     if "ocean" in text_sig:
         return False
@@ -506,7 +529,7 @@ def is_figure_or_table(fig: Dict[str, Any]) -> bool:
     keywords = [
         "figure", "fig", "table", "image", "diagram", "map", "graph", "chart",
         "picture", "sketch", "photo", "illustration", "roots", "leaves", "skeleton",
-        "symbol", "emblem", "flag", "circuit", "organ", "cycle", "activity", "tree",
+        "symbol", "emblem", "flag", "circuit", "organ", "cycle", "tree",
         "seed", "snake", "ant", "atm", "temple", "craft", "model", "experiment",
         "joint", "bone", "venation", "flower", "fruit", "solar", "mosquito", "animal",
         "thumb", "hand", "rule", "magnetic", "field", "conductor", "wire", "current",
@@ -538,8 +561,12 @@ def find_figures_for_query(
     scored_figures: List[Tuple[float, Dict[str, Any]]] = []
 
     for page in page_results:
-        p_text = page["text"] if isinstance(page, dict) else page.text
-        p_figs = page["figures"] if isinstance(page, dict) else page.figures
+        if isinstance(page, dict):
+            p_text = page.get("text") or page.get("raw_text") or ""
+            p_figs = page.get("figures", [])
+        else:
+            p_text = getattr(page, "text", "") or getattr(page, "raw_text", "") or ""
+            p_figs = getattr(page, "figures", [])
 
         for fig in p_figs:
             fig_copy = dict(fig) if isinstance(fig, dict) else fig.to_dict()

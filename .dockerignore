@@ -1,0 +1,26 @@
+.git
+.venv
+venv
+__pycache__
+.pytest_cache
+frontend/node_modules
+frontend/dist
+*.pyc
+*.pyo
+*.log
+
+# Local generated document assets are mounted by Compose.
+data/images
+data/uploads
+data/pages
+data/extracted
+
+# Large local model assets are mounted read-only by Compose.
+model
+
+# Training and evaluation artifacts are not needed in the runtime image.
+scripts
+evaluation
+docs
+tests
+ data/training_data

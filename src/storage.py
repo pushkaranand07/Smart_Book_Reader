@@ -17,10 +17,24 @@ IMAGES_DIR = DATA_DIR / "images"
 PIPELINE_VERSION = "v4.1"
 
 
-def get_cache_key(file_name: str, min_char_threshold: int) -> str:
-    """Generate MD5 hash of filename, threshold, and pipeline version for cache invalidation."""
-    raw = f"{file_name}:{min_char_threshold}:{PIPELINE_VERSION}"
-    return hashlib.md5(raw.encode()).hexdigest()
+def get_cache_key(
+    file_name: str,
+    min_char_threshold: int,
+    file_hash: str = "",
+    ocr_dpi: int = 150,
+) -> str:
+    """Generate a cache key from file identity and all extraction settings."""
+    raw = f"{file_name}:{file_hash}:{min_char_threshold}:{ocr_dpi}:{PIPELINE_VERSION}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def hash_file(path: str | Path) -> str:
+    """Return the SHA-256 digest of a file's contents."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def ensure_directories() -> None:
@@ -59,7 +73,9 @@ def save_extraction_results(filename: str, data: Dict[str, Any]) -> Path:
     ensure_directories()
     safe_base = Path(sanitize_filename(filename)).stem
     threshold = data.get("threshold_used", 40)
-    data["cache_key"] = get_cache_key(filename, threshold)
+    file_hash = data.get("source_file_hash", "")
+    ocr_dpi = data.get("ocr_dpi", 150)
+    data["cache_key"] = get_cache_key(filename, threshold, file_hash, ocr_dpi)
     data["pipeline_version"] = PIPELINE_VERSION
 
     json_path = EXTRACTED_DIR / f"{safe_base}_extracted.json"
@@ -68,7 +84,12 @@ def save_extraction_results(filename: str, data: Dict[str, Any]) -> Path:
     return json_path
 
 
-def load_extraction_results(filename: str, min_char_threshold: int = 40) -> Optional[Dict[str, Any]]:
+def load_extraction_results(
+    filename: str,
+    min_char_threshold: int = 40,
+    file_hash: str = "",
+    ocr_dpi: int = 150,
+) -> Optional[Dict[str, Any]]:
     """Load previously saved extraction results if valid and not stale."""
     safe_base = Path(sanitize_filename(filename)).stem
     json_path = EXTRACTED_DIR / f"{safe_base}_extracted.json"
@@ -76,7 +97,7 @@ def load_extraction_results(filename: str, min_char_threshold: int = 40) -> Opti
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            expected_key = get_cache_key(filename, min_char_threshold)
+            expected_key = get_cache_key(filename, min_char_threshold, file_hash, ocr_dpi)
             # Stale cache check: if cache key does not match current pipeline version and threshold, reject it
             if data.get("cache_key") == expected_key:
                 return data

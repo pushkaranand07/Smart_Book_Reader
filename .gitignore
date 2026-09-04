@@ -2,6 +2,8 @@
 venv/
 env/
 .venv/
+frontend/node_modules/
+frontend/dist/
 
 # Python cache
 __pycache__/
@@ -19,6 +21,7 @@ data/images/*
 data/pages/*
 !data/pages/.gitkeep
 data/training_data/
+data/.cache/
 *.zip
 evaluation/
 runs/

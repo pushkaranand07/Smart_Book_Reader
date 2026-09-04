@@ -1,9 +1,11 @@
+import json
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.search import extract_meaningful_keywords, search_pages
 from src.pdf_processor import find_figures_for_query, extract_meaningful_terms, is_figure_or_table
+from src.normalized_document import parse_explicit_reference
 
 BOOK_QA_SYSTEM_PROMPT = """You are an intelligent, expert Book AI tutor and assistant.
 Your goal is to provide clear, thorough, accurate, and insightful answers to the user's questions based on the uploaded book excerpts.
@@ -11,7 +13,7 @@ Your goal is to provide clear, thorough, accurate, and insightful answers to the
 Guidelines:
 1. Grounding: Anchor your answers in the concepts, experiments, chemical reactions, activities, and topics present in the provided book excerpts.
 2. Conceptual Inference & Reasoning: If the question asks "why", "how", or asks to solve an exercise/activity question (e.g. why magnesium ribbon is cleaned before burning, explaining underlying reactions, balancing equations), use your expert reasoning and scientific principles connected to the book's context to provide a complete, clear explanation.
-3. Citations: Always cite the source page number(s) (e.g., [Page 1], [Page 6]) where the relevant concept, activity, or topic appears in the book.
+3. Answer style: Explain the topic in a clear, well-structured way using a short definition, meaningful headings, concise paragraphs, and bullet lists where useful. Do not include page numbers or source citations in the answer text.
 4. Out-of-Scope Topics: Only if the user's question is completely unrelated to anything covered in the book excerpts, state that the topic is not covered in the uploaded book.
 """
 
@@ -268,15 +270,81 @@ def synthesize_offline_evidence(query: str, evidence_pages: List[Dict[str, Any]]
     """Synthesize an extractive answer when running in offline mode without an API key."""
     snippets = []
     for p in evidence_pages:
-        p_num = p["page_number"]
         snippet = p.get("snippet", "")
-        snippets.append(f"**From Page {p_num}:**\n> {snippet}")
+        snippets.append(f"> {snippet}")
 
     synthesis = "\n\n".join(snippets)
     return (
         f"**Extracted Evidence from Book:**\n\n{synthesis}\n\n"
-        f"*(💡 Add your Gemini API key in the sidebar for complete natural-language synthesis.)*"
+        f"*(Add a Gemini API key for complete natural-language synthesis.)*"
     )
+
+
+def _remove_page_citations(answer: str) -> str:
+    """Keep source pages in structured metadata, but omit page labels from answer prose."""
+    cleaned = re.sub(r"\s*\[(?:page|pages)\s+\d+(?:\s*[-,]\s*\d+)*\]", "", answer, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
+def _normalized_pages_for_retrieval(book_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Prefer the normalized document graph when present, but fall back to the legacy page list."""
+    normalized_doc = book_data.get("normalized_document")
+    if isinstance(normalized_doc, dict):
+        pages: List[Dict[str, Any]] = []
+        for page in normalized_doc.get("pages", []) or []:
+            page_text = page.get("raw_text") or " ".join(
+                [caption.get("text", "") for caption in page.get("captions", [])]
+            )
+            pages.append(
+                {
+                    "page_number": page.get("page_number"),
+                    "page_type": page.get("page_type", "Digital"),
+                    "text": page_text,
+                    "figures": page.get("figures", []),
+                    "captions": page.get("captions", []),
+                    "relationships": page.get("relationships", []),
+                }
+            )
+        if pages:
+            return pages
+
+    return book_data.get("pages", [])
+
+
+def _explicit_reference_match(query: str, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Prefer a single explicitly requested figure reference like 'Figure 5.2'."""
+    target_ref = None
+    for pattern in [r"Figure\s+(\d+(?:\.\d+)?)", r"Fig\.?\s*(\d+(?:\.\d+)?)", r"Table\s+(\d+(?:\.\d+)?)"]:
+        match = re.search(pattern, query, flags=re.IGNORECASE)
+        if match:
+            target_ref = match.group(1)
+            break
+
+    if not target_ref:
+        return []
+
+    matches: List[Dict[str, Any]] = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        for fig in page.get("figures", []) or []:
+            if not isinstance(fig, dict):
+                continue
+            fig_label = str(fig.get("figure_label") or "")
+            fig_id = str(fig.get("figure_id") or "")
+            caption = str(fig.get("caption") or "")
+            if target_ref in {fig_id, parse_explicit_reference(fig_label), parse_explicit_reference(caption)}:
+                matches.append(fig)
+
+    seen = set()
+    deduped: List[Dict[str, Any]] = []
+    for fig in matches:
+        key = fig.get("figure_id") or fig.get("id")
+        if key and key in seen:
+            continue
+        seen.add(key)
+        deduped.append(fig)
+    return deduped
 
 
 def answer_question(
@@ -286,7 +354,7 @@ def answer_question(
     top_k: int = 5,
 ) -> Dict[str, Any]:
     """Retrieve evidence, score & disambiguate figures, call LLM with strict prompt, and return structured answer."""
-    pages_list = book_data.get("pages", [])
+    pages_list = _normalized_pages_for_retrieval(book_data)
     if not query.strip() or not pages_list:
         return {
             "query": query,
@@ -298,8 +366,11 @@ def answer_question(
             "is_sufficient": False,
         }
 
+    # Use a per-book cache key so the semantic index does not leak between different books/tests.
+    book_cache_key = f"book:{hash(json.dumps(book_data, sort_keys=True, default=str))}"
+
     # 1. Search & Rank (Retrieval)
-    ranked_evidence = search_pages(pages_list, query, top_k=top_k)
+    ranked_evidence = search_pages(pages_list, query, top_k=top_k, book_id=book_cache_key)
 
     # 2. Handle insufficient evidence
     if not ranked_evidence:
@@ -352,6 +423,38 @@ def answer_question(
             deduped_candidates.append(f)
     candidate_figures = deduped_candidates
 
+    explicit_matches = _explicit_reference_match(query, pages_list)
+    if explicit_matches:
+        candidate_figures = explicit_matches
+        explicit_page_numbers = {
+            f.get("page_number")
+            for f in explicit_matches
+            if isinstance(f, dict) and f.get("page_number") is not None
+        }
+        if explicit_page_numbers:
+            ranked_evidence = [
+                ev for ev in ranked_evidence if ev.get("page_number") in explicit_page_numbers
+            ]
+            if not ranked_evidence:
+                for page in pages_list:
+                    if not isinstance(page, dict):
+                        continue
+                    if page.get("page_number") in explicit_page_numbers:
+                        snippet = page.get("text") or " ".join(
+                            caption.get("text", "") for caption in page.get("captions", [])
+                        )
+                        ranked_evidence = [{
+                            "page_number": page.get("page_number"),
+                            "page_type": page.get("page_type", "Digital"),
+                            "score": 100.0,
+                            "semantic_score": 1.0,
+                            "matched_terms": ["figure"],
+                            "snippet": snippet[:300],
+                            "text": snippet,
+                            "images": page.get("images", []),
+                        }]
+                        break
+
     # 4. LLM Visual Selection & Ranking (or Heuristic Fallback)
     if resolved_api_key and candidate_figures:
         selected_figures = llm_select_relevant_figures(
@@ -378,7 +481,7 @@ def answer_question(
     # 5. Connect to LLM for Answer Generation
     if resolved_api_key:
         prompt = format_evidence_prompt(query, ranked_evidence)
-        answer_text = call_gemini_llm(prompt, resolved_api_key)
+        answer_text = _remove_page_citations(call_gemini_llm(prompt, resolved_api_key))
     else:
         answer_text = synthesize_offline_evidence(query, ranked_evidence)
 

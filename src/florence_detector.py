@@ -7,6 +7,7 @@ Uses the canonical training pipeline in src/layout/ for inference.
 from __future__ import annotations
 
 import threading
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -15,6 +16,8 @@ from PIL import Image
 from src.layout.florence_model import load_trained_model
 from src.layout.florence_processor import generate_detections
 from src.layout.paths import FLORENCE_LAYOUT_DIR
+
+logger = logging.getLogger(__name__)
 
 _HUB_MODEL_ID = "microsoft/Florence-2-base"
 
@@ -74,7 +77,8 @@ class FlorenceVisualDetector:
         results: List[Dict[str, Any]] = []
 
         try:
-            det = generate_detections(_florence_model, _florence_processor, pil_image, _florence_device)
+            with _florence_lock:
+                det = generate_detections(_florence_model, _florence_processor, pil_image, _florence_device)
             for bbox, label in zip(det["bboxes"], det.get("labels") or ["Picture"] * len(det["bboxes"])):
                 clean = (label or "Picture").strip()
                 if clean.lower() not in ("picture", "diagram", "figure", "image", "chart", "graph"):
@@ -92,6 +96,7 @@ class FlorenceVisualDetector:
                     "height": h,
                 })
         except Exception:
+            logger.exception("Florence visual detection failed")
             pass
 
         results.sort(key=lambda r: r["width"] * r["height"], reverse=True)
@@ -101,11 +106,13 @@ class FlorenceVisualDetector:
         if not self.is_available:
             return ""
         try:
-            det = generate_detections(
-                _florence_model, _florence_processor, pil_image, _florence_device, max_new_tokens=256
-            )
+            with _florence_lock:
+                det = generate_detections(
+                    _florence_model, _florence_processor, pil_image, _florence_device, max_new_tokens=256
+                )
             return det.get("raw_text", "").strip()
         except Exception:
+            logger.exception("Florence image captioning failed")
             return ""
 
     def detect_and_caption(self, pil_image: Image.Image) -> Dict[str, Any]:

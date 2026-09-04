@@ -85,17 +85,12 @@ def generate_detections(
     if "pixel_values" in inputs:
         inputs["pixel_values"] = inputs["pixel_values"].to(dtype=dtype)
 
-    # Florence-2 remote generate() breaks on newer transformers Cache/past_key_values.
-    # Greedy decode with use_cache=False is the stable path for eval/overfit.
-    gen_kwargs = {
-        "input_ids": inputs["input_ids"],
-        "pixel_values": inputs["pixel_values"],
-        "max_new_tokens": max_new_tokens,
-        "do_sample": False,
-        "use_cache": False,
-        "num_beams": 1,
-    }
-    gen_ids = model.generate(**gen_kwargs)
+    gen_ids = model.generate(
+        input_ids=inputs["input_ids"],
+        pixel_values=inputs["pixel_values"],
+        max_new_tokens=max_new_tokens,
+        num_beams=num_beams,
+    )
     gen_text = processor.batch_decode(gen_ids, skip_special_tokens=False)[0]
     parsed = processor.post_process_generation(
         gen_text, task=TASK_PROMPT, image_size=image.size

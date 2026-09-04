@@ -135,17 +135,24 @@ def attach_lora(
     target_modules: List[str] | None = None,
 ) -> Any:
     from peft import LoraConfig, get_peft_model
+    import inspect
 
     if target_modules is None:
         target_modules = discover_lora_targets(model)
 
+    config_kwargs = {
+        "r": r,
+        "lora_alpha": lora_alpha,
+        "target_modules": target_modules,
+        "lora_dropout": lora_dropout,
+        "bias": "none",
+        "task_type": "CAUSAL_LM",
+    }
+    if "ensure_weight_tying" in inspect.signature(LoraConfig).parameters:
+        config_kwargs["ensure_weight_tying"] = True
+
     config = LoraConfig(
-        r=r,
-        lora_alpha=lora_alpha,
-        target_modules=target_modules,
-        lora_dropout=lora_dropout,
-        bias="none",
-        task_type="CAUSAL_LM",
+        **config_kwargs,
     )
     model = get_peft_model(model, config)
 

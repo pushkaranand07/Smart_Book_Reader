@@ -1,210 +1,235 @@
-# 📖 Smart Book Reader
+# Smart Book Reader
 
-> An intelligent, visual document exploration and question-answering system designed for complex textbooks, scientific papers, and scanned documents.
+Smart Book Reader is a document-intelligence application for textbooks, papers, and scanned PDFs. It extracts text and visual regions, builds a normalized document graph, supports grounded question answering, and presents the result through a React interface.
 
----
+## Product Architecture
 
-## 🌟 Overview
-
-**Smart Book Reader** bridges the gap between text extraction and visual comprehension. Traditional PDF readers only parse plain text, missing diagrams, apparatus setups, and scientific figures. Smart Book Reader uses a **Hybrid Multi-Lane Pipeline** combining:
-
-- **PyMuPDF**: High-speed digital text & vector graphics extraction.
-- **Tesseract OCR**: Full-text and coordinate layout parsing for scanned pages.
-- **YOLOv8 Deep Learning**: Visual object detection for apparatus, charts, diagrams, and figures.
-- **OpenCV**: Pixel-level morphological boundary snapping and text masking.
-- **Gemini LLM**: Strict, grounded question-answering with conceptual reasoning and source page citations.
-
----
-
-## 🚀 Key Features
-
-- **Automatic Two-Lane Routing**: Dynamically inspects each page's embedded character density to route digital pages through native text extraction (sub-second speed) and scanned image pages through high-resolution OCR.
-- **YOLOv8 Visual Region Detection**: Uses deep learning to localize apparatus, experiments, and visual figures without needing hardcoded coordinate heuristics.
-- **Multi-Signal Figure Retrieval**: Ranks visual diagrams using a 5-component weighted scoring formula (internal diagram labels, caption matches, citation proximity, surrounding context, and conceptual intent).
-- **LLM-Assisted Visual Reranker**: Understands semantic intent to surface the exact relevant diagram(s) for a query (e.g., matching *"burning magnesium ribbon"* to *Activity 1.1 / Figure 1.1*).
-- **Conceptual Deduction & Citations**: Answers chapter exercises and reasoning questions by connecting concepts to book context while always citing source page numbers (e.g., `[Page 1]`, `[Page 6]`).
-- **Offline Extractive Fallback**: Operates fully offline without an API key by generating structured direct evidence snippets from matched pages.
-
----
-
-## 🏗️ Architecture & Pipeline Flow
-
-```
-                               ┌─────────────────────────┐
-                               │     Uploaded PDF        │
-                               └────────────┬────────────┘
-                                            │
-                                            ▼
-                           ┌─────────────────────────────────┐
-                           │ Page Classification & Inspection│
-                           │   (Character Density Analysis)  │
-                           └────────┬───────────────┬────────┘
-                                    │               │
-                 [>= 40 chars]      │               │ [< 40 chars]
-                 Digital Page       │               │ Scanned Page
-                                    ▼               ▼
-                      ┌──────────────────┐    ┌──────────────────┐
-                      │ Digital Pipeline │    │ Scanned Pipeline │
-                      │ - Vector Paths   │    │ - 300 DPI Render │
-                      │ - Font Streams   │    │ - Tesseract OCR  │
-                      │ - PyMuPDF Images │    │ - OpenCV Contours│
-                      └────────┬─────────┘    └────────┬─────────┘
-                               │                       │
-                               └───────────┬───────────┘
-                                           │
-                                           ▼
-                            ┌─────────────────────────────┐
-                            │  YOLOv8 Visual Detection    │
-                            │  (Bounding Box Predictions) │
-                            └──────────────┬──────────────┘
-                                           │
-                                           ▼
-                            ┌─────────────────────────────┐
-                            │  Structured PageResult JSON │
-                            └──────────────┬──────────────┘
-                                           │
-                        ┌──────────────────┴──────────────────┐
-                        │                                     │
-                        ▼                                     ▼
-           ┌─────────────────────────┐           ┌─────────────────────────┐
-           │ 6-Layer Text Retrieval  │           │ 5-Signal Figure Scoring │
-           │ - Exact & Stem Matching │           │ - Semantic Labels (40%) │
-           │ - Substring & Prefix    │           │ - Caption Match (25%)   │
-           │ - Bigram Co-occurrence  │           │ - Citation Window (20%) │
-           └────────────┬────────────┘           └────────────┬────────────┘
-                        │                                     │
-                        └──────────────────┬──────────────────┘
-                                           │
-                                           ▼
-                            ┌─────────────────────────────┐
-                            │   LLM Visual Selection &    │
-                            │ Grounded Answer Generation  │
-                            └──────────────┬──────────────┘
-                                           │
-                                           ▼
-                            ┌─────────────────────────────┐
-                            │ Interactive Streamlit View  │
-                            └─────────────────────────────┘
+```mermaid
+flowchart TD
+    U[User uploads PDF] --> R[React/Vite frontend]
+    R --> A[FastAPI API]
+    A --> P[PDFProcessor]
+    P --> C{Page classification}
+    C -->|Native text| D[DigitalPipeline]
+    C -->|Image/scanned| S[ScannedPipeline]
+    D --> T[PyMuPDF text and vector extraction]
+    S --> O[OCR and OpenCV layout extraction]
+    T --> V[Florence-2 visual detection]
+    O --> V
+    V --> N[Normalized document adapter]
+    N --> G[Pages, figures, captions, relationships]
+    G --> X[Keyword and semantic retrieval]
+    X --> Q[Grounded QA and figure ranking]
+    Q --> R
+    G --> J[JSON cache and media assets]
 ```
 
----
+### Runtime boundaries
 
-## 🛠️ Installation & Setup
+1. **Frontend**: `frontend/src/main.jsx` uploads PDFs, browses normalized pages, displays figures, renders answers, and downloads cleaned full text.
+2. **API**: `api/main.py` owns HTTP routes, upload handling, cache loading, public media URLs, and question requests.
+3. **Processing**: `src/pdf_processor.py` routes each page to the digital or scanned lane.
+4. **Normalization**: `src/normalized_document.py` converts legacy extractor records into the internal document graph. This is the application contract.
+5. **Retrieval and QA**: `src/search.py`, `src/semantic_search.py`, `src/qa_engine.py`, and figure scoring assemble grounded evidence.
+6. **Persistence**: `src/storage.py` stores uploads, extracted JSON, page assets, and figure crops under `data/`.
 
-### 1. Prerequisites
+The rest of the application does not depend directly on an external parser's output format. Legacy page records are accepted only at the adapter boundary and are converted before retrieval, QA, or UI consumption.
 
-- **Python**: Version 3.10, 3.11, 3.12, or 3.13
-- **Tesseract OCR**:
-  - **Windows**: Download installer from [UB-Mannheim Tesseract](https://github.com/UB-Mannheim/tesseract/wiki). Add to PATH or standard install location (`C:\Program Files\Tesseract-OCR\tesseract.exe`).
-  - **Linux (Ubuntu/Debian)**: `sudo apt-get install tesseract-ocr`
-  - **macOS**: `brew install tesseract`
+The normalized document graph is the application contract. Raw extractor output is adapted before retrieval, QA, or the UI consumes it. Activity panels and malformed visual labels are filtered at that boundary.
 
----
+## Features
 
-### 2. Clone the Repository
+- Digital and scanned PDF processing with automatic page routing.
+- Native text, OCR text, vector regions, embedded images, and figure captions.
+- Canonical pages, figures, captions, and relationships in a normalized document model.
+- Keyword and semantic retrieval with grounded offline answers.
+- Optional Gemini synthesis and visual reranking.
+- React/Vite document browser with cleaned page text and full-text reading view.
+- FastAPI upload, book, question, health, and media endpoints.
+- Florence-2 training and evaluation utilities retained under `scripts/`.
 
-```bash
-git clone https://github.com/pushkaranand07/Smart-Book-Reader.git
-cd Smart-Book-Reader
+## Technology Stack
+
+| Area | Technology | Current responsibility |
+| --- | --- | --- |
+| Web UI | React 18, Vite, `react-markdown` | Document browser, QA interface, cleaned text presentation |
+| API | FastAPI, Uvicorn, Pydantic | Upload, health, book, question, and media endpoints |
+| Native PDF | PyMuPDF | Embedded text, page blocks, vector drawings, and image regions |
+| Scanned PDF | Tesseract, EasyOCR, OpenCV, Pillow | OCR text, coordinates, image analysis, and scanned visual extraction |
+| Visual model | Florence-2, Transformers, Torch, PEFT | Picture-region detection, training, inference, and evaluation |
+| Retrieval | BGE-large embeddings, Sentence Transformers, FAISS | Semantic page search and evidence ranking |
+| QA | Gemini API, offline extractive fallback | Optional synthesis and visual reranking; local fallback without an API key |
+| Data tooling | PyYAML, NumPy, SciPy, Hugging Face Datasets | Configuration, dataset construction, metrics, and training utilities |
+
+## Document Processing Flow
+
+```text
+PDF upload
+        |
+        v
+PageResult records (legacy compatibility)
+        |
+        v
+normalize_legacy_document(...)
+        |
+        +--> Page.raw_text
+        +--> Figure entities with stable IDs
+        +--> Caption entities and explicit references
+        +--> Relationships such as caption_of and references
+        +--> Sanitized and deduplicated visual records
+        |
+        v
+NormalizedDocument JSON
+        |
+        +--> API response and React page browser
+        +--> Retrieval and QA
+        +--> Cached extraction output
 ```
 
----
+## Architecture Evolution
 
-### 3. Create & Activate Virtual Environment
+The project has deliberately evolved without rebuilding the working system:
+
+| Earlier state | Current state |
+| --- | --- |
+| Page-centric extractor records were consumed directly | Records pass through a normalized document adapter |
+| Figure IDs could be malformed or duplicated | IDs are sanitized, canonicalized, and deduplicated |
+| Generic figure ranking could return several nearby visuals | Explicit references such as `Figure 5.2` take priority |
+| Activity panels could appear as figures | Activity-only regions are filtered before UI and QA output |
+| Raw page text was shown with extraction artifacts | React cleans repeated lines, markers, and hard breaks |
+| Streamlit was an old interface | Removed; React + FastAPI is the only supported product runtime |
+| MinerU output existed as an external-parser artifact | Removed; the application owns its internal document model |
+
+## MinerU Status
+
+**MinerU is not used by the current product.** There is no MinerU runtime dependency, adapter, output directory, or API path in the cleaned repository. The current system uses its own PDF processing lanes and normalized document graph.
+
+MinerU-like capabilities are implemented through the project-owned combination of PyMuPDF, OCR, OpenCV, Florence-2, normalization, retrieval, and QA. This keeps the rest of the application independent from MinerU or any other external parser. If MinerU is evaluated again in the future, it should be integrated only as an optional adapter that produces the same normalized document contract.
+
+## Requirements
+
+- Python 3.11 or newer.
+- Node.js and npm for the frontend.
+- Tesseract OCR installed and available on PATH, or installed in the standard Windows location.
+- Enough disk space for the local embedding and Florence-2 model directories.
+
+## Setup
+
+Create and activate the project environment on Windows:
 
 ```powershell
-# Windows (PowerShell)
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# Linux / macOS
-python3 -m venv venv
-source venv/bin/activate
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-api.txt
 ```
 
----
-
-### 4. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-*(YOLOv8 model weights `yolov8n.pt` will automatically download on the first run).*
-
----
-
-### 5. (Optional) Set Google Gemini API Key
-
-For natural language synthesis and LLM-assisted figure ranking:
+Install frontend dependencies:
 
 ```powershell
-# Windows (PowerShell)
-$env:GEMINI_API_KEY="your-api-key-here"
-
-# Linux / macOS
-export GEMINI_API_KEY="your-api-key-here"
+cd frontend
+npm install
+cd ..
 ```
 
-> **Note**: You can also enter your API key directly inside the Streamlit sidebar at runtime.
+For dataset construction and Florence-2 training, install the separate training dependencies:
 
----
-
-## 🖥️ Running the Application
-
-Launch the Streamlit interface:
-
-```bash
-streamlit run app.py
+```powershell
+python -m pip install -r requirements-train.txt
 ```
 
-Then open your browser to `http://localhost:8501`.
+Set the optional Gemini key for natural-language synthesis and visual reranking:
 
----
-
-## 📁 Project Structure
-
-```
-Smart-Book-Reader/
-├── app.py                      # Main Streamlit user interface
-├── requirements.txt            # Locked project dependencies
-├── README.md                   # Documentation & setup guide
-├── .gitignore                  # Git ignore rules
-│
-├── src/                        # Core application modules
-│   ├── __init__.py
-│   ├── pdf_processor.py        # Pipeline orchestrator & Two-Lane classifier
-│   ├── digital_pipeline.py     # Native PyMuPDF text & vector drawing engine
-│   ├── scanned_pipeline.py     # Tesseract OCR & OpenCV contour extractor
-│   ├── yolo_detector.py        # YOLOv8 visual diagram & layout analyzer
-│   ├── search.py               # 6-layer text relevance & snippet ranking
-│   ├── qa_engine.py            # Evidence assembly, LLM visual selector & QA
-│   ├── ocr_config.py           # Cross-platform Tesseract auto-discovery
-│   └── storage.py              # File caching & directory management
-│
-└── data/                       # Local data directories
-    ├── uploads/                # Uploaded PDF documents
-    ├── extracted/              # Processed PageResult JSON cache
-    ├── images/                 # Cropped figures & diagram PNGs
-    └── pages/                  # Page preview thumbnails
+```powershell
+$env:GEMINI_API_KEY = "your-api-key"
 ```
 
----
+## Run The Product
 
-## 🔬 Multi-Signal Figure Ranking Formula
+Start the API from the repository root:
 
-Each extracted figure is evaluated using a composite multi-signal formula scaled from 0 to 100:
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn api.main:app --reload --port 8000
+```
 
-$$\text{Score} = \left( 0.40 \cdot S_{\text{semantic}} + 0.25 \cdot S_{\text{caption}} + 0.20 \cdot S_{\text{citation}} + 0.10 \cdot S_{\text{context}} + 0.05 \cdot S_{\text{type}} \right) \times 100$$
+In a second terminal, start the React frontend:
 
-- **$S_{\text{semantic}}$ (40%)**: Matches query keywords against internal diagram text labels.
-- **$S_{\text{caption}}$ (25%)**: Evaluates hits in the formal figure caption (`Figure 1.1`).
-- **$S_{\text{citation}}$ (20%)**: Keyword proximity in sentences where the text cites the figure.
-- **$S_{\text{context}}$ (10%)**: Paragraph context directly above or below the figure bounding box.
-- **$S_{\text{type}}$ (5%)**: Intent alignment (process/mechanism vs. structure/apparatus).
+```powershell
+cd frontend
+npm run dev
+```
 
----
+Open `http://localhost:5173`. The API health check is available at `http://127.0.0.1:8000/api/health`.
 
-## 📜 License
+## Run With Docker
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Docker Compose runs the API and React frontend together. The application data directory is mounted from the host, so uploaded PDFs, extracted JSON, page assets, and figure crops survive container rebuilds. Local model assets are mounted read-only from `model/`.
+
+Install Docker Desktop, then run from the repository root:
+
+```powershell
+docker compose up --build -d
+```
+
+Open `http://localhost:5173`. Check the API container with:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/health
+```
+
+Stop the containers without deleting persisted data:
+
+```powershell
+docker compose down
+```
+
+The Docker deployment is CPU-based. The first build may be large because the document pipeline includes Torch, Transformers, OCR, and embedding dependencies. GPU acceleration is not configured in the Compose file.
+
+## API Endpoints
+
+- `GET /api/health` checks service availability.
+- `POST /api/books/upload` uploads and processes a PDF.
+- `GET /api/books/{book_id}` returns the processed normalized book.
+- `POST /api/books/{book_id}/questions` answers a question using book evidence.
+- `/media/*` serves generated visual assets.
+
+## Tests And Builds
+
+Run backend tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Build the frontend:
+
+```powershell
+cd frontend
+npm run build
+```
+
+## Repository Structure
+
+```text
+api/                    FastAPI application
+configs/                Florence layout configuration
+data/
+  extracted/            Cached processed document JSON
+  images/               Generated figure crops
+  pages/                Generated page assets
+  training_data/        Dataset manifest and training images
+  uploads/              Uploaded PDFs
+docs/                   Dataset and training guides
+evaluation/             Evaluation output
+frontend/               React/Vite application
+model/                  Local embedding and Florence model assets
+scripts/
+  dataset/              Dataset construction and validation
+  evaluation/           Model evaluation and visualization
+  inference/             Figure inference utilities
+  training/              Florence-2 training utilities
+src/                    Document processing, normalization, retrieval, and QA
+tests/                  Backend regression tests
+```
+
+Generated caches, local environments, model weights, archives, and frontend dependencies are ignored and are not part of the runtime source tree.

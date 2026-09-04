@@ -196,6 +196,6 @@ def semantic_search_pages(
             raise RuntimeError("FAISS index is empty.")
         return idx.search(query, top_k=top_k, score_threshold=score_threshold)
     except Exception:
-        # Graceful fallback to keyword search
-        from src.search import search_pages as keyword_search
-        return keyword_search(pages, query, top_k=top_k)
+        # Graceful fallback without re-entering semantic retrieval.
+        from src.search import _keyword_search_pages
+        return _keyword_search_pages(pages, query, top_k=top_k)

@@ -146,6 +146,38 @@ def _score_page(
     return score, matched_terms
 
 
+def _keyword_search_pages(
+    pages: List[Dict[str, Any]],
+    query: str,
+    top_k: int = 5,
+) -> List[Dict[str, Any]]:
+    keywords = extract_meaningful_keywords(query)
+    if not keywords:
+        return []
+    query_lower = query.lower().strip()
+    ranked_results = []
+    for page in pages:
+        p_dict = page.to_dict() if hasattr(page, "to_dict") else page
+        text = p_dict.get("text", "")
+        text_lower = text.lower()
+        tokens = clean_and_tokenize(text)
+        score, matched_terms = _score_page(text, text_lower, tokens, keywords, query_lower)
+        if score > 0:
+            snippet = extract_snippet(text, keywords)
+            ranked_results.append({
+                "page_number": p_dict.get("page_number", 1),
+                "page_type": p_dict.get("page_type", "Digital"),
+                "score": score,
+                "semantic_score": 0.0,
+                "matched_terms": matched_terms,
+                "snippet": snippet,
+                "text": text,
+                "images": p_dict.get("images", []),
+            })
+    ranked_results.sort(key=lambda x: x["score"], reverse=True)
+    return ranked_results[:top_k]
+
+
 def search_pages(
     pages: List[Dict[str, Any]],
     query: str,
@@ -186,31 +218,7 @@ def search_pages(
 
     # ── 2. Fallback: keyword-only if semantic unavailable ─────────────────
     if not semantic_results:
-        keywords = extract_meaningful_keywords(query)
-        if not keywords:
-            return []
-        query_lower = query.lower().strip()
-        ranked_results = []
-        for page in pages:
-            p_dict = page.to_dict() if hasattr(page, "to_dict") else page
-            text = p_dict.get("text", "")
-            text_lower = text.lower()
-            tokens = clean_and_tokenize(text)
-            score, matched_terms = _score_page(text, text_lower, tokens, keywords, query_lower)
-            if score > 0:
-                snippet = extract_snippet(text, keywords)
-                ranked_results.append({
-                    "page_number": p_dict.get("page_number", 1),
-                    "page_type": p_dict.get("page_type", "Digital"),
-                    "score": score,
-                    "semantic_score": 0.0,
-                    "matched_terms": matched_terms,
-                    "snippet": snippet,
-                    "text": text,
-                    "images": p_dict.get("images", []),
-                })
-        ranked_results.sort(key=lambda x: x["score"], reverse=True)
-        return ranked_results[:top_k]
+        return _keyword_search_pages(pages, query, top_k=top_k)
 
     # ── 3. Keyword Boost on Semantic Results ──────────────────────────────
     keywords = extract_meaningful_keywords(query)

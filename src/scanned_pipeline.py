@@ -11,6 +11,7 @@ Handles:
 
 import re
 import time
+import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import cv2
@@ -22,6 +23,8 @@ import pytesseract
 from src.ocr_engine import ocr_image
 
 from src.storage import IMAGES_DIR
+
+logger = logging.getLogger(__name__)
 
 
 class ScannedPipeline:
@@ -387,6 +390,7 @@ class ScannedPipeline:
                     )
                     extracted_figures.append(fig_meta)
             except Exception:
+                logger.exception("Florence scanned-region detection failed on page %s", page_number)
                 pass
 
         # 3. Standalone Visual Diagram & Activity Detection (OpenCV Contours)
@@ -478,6 +482,7 @@ class ScannedPipeline:
                 extracted_figures.append(diag_meta)
                 diag_idx += 1
         except Exception:
+            logger.exception("OpenCV scanned-visual extraction failed on page %s", page_number)
             pass
 
         figure_dicts = [f.to_dict() if hasattr(f, "to_dict") else f for f in extracted_figures]

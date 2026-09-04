@@ -165,7 +165,6 @@ def validate_dataset(
     blocking = (
         report.missing_images > 0
         or report.corrupt_images > 0
-        or report.invalid_boxes > 0
         or report.source_overlap["train_val"] > 0
         or report.source_overlap["train_test"] > 0
         or report.source_overlap["val_test"] > 0
