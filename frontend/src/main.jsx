@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import Markdown from "react-markdown";
 import "./styles.css";
 
-const API = import.meta.env.VITE_API_URL || "";
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 
 function assetUrl(path) {
   if (!path || path.startsWith("http")) return path;
