@@ -156,6 +156,8 @@ class Page:
     width: Optional[float] = None
     height: Optional[float] = None
     raw_text: str = ""
+    status: str = "ok"
+    errors: List[Dict[str, str]] = field(default_factory=list)
     text_blocks: List[Dict[str, Any]] = field(default_factory=list)
     figures: List[Figure] = field(default_factory=list)
     tables: List[Dict[str, Any]] = field(default_factory=list)
@@ -203,6 +205,8 @@ def normalize_legacy_page_result(document: NormalizedDocument, page_result: Dict
         page_number=page_number,
         page_type=str(page_result.get("page_type", "Digital")),
         raw_text=str(page_result.get("text", "")),
+        status=str(page_result.get("status", "ok")),
+        errors=list(page_result.get("errors", []) or []),
         provenance={
             "source": "legacy_page_result",
             "ocr_applied": bool(page_result.get("ocr_applied", False)),

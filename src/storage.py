@@ -79,6 +79,19 @@ def save_extraction_results(filename: str, data: Dict[str, Any]) -> Path:
     data["pipeline_version"] = PIPELINE_VERSION
 
     json_path = EXTRACTED_DIR / f"{safe_base}_extracted.json"
+    if json_path.exists():
+        try:
+            with json_path.open("r", encoding="utf-8") as file_obj:
+                existing = json.load(file_obj)
+            if (
+                existing.get("cache_key") == data["cache_key"]
+                and existing.get("pipeline_version") == PIPELINE_VERSION
+            ):
+                return json_path
+        except (OSError, json.JSONDecodeError, AttributeError):
+            # A partial or malformed cache is replaced by the fresh result below.
+            pass
+
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     return json_path

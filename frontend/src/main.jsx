@@ -1,14 +1,8 @@
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import Markdown from "react-markdown";
+import { assetUrl, checkHealth, request } from "./api/client";
 import "./styles.css";
-
-const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
-
-function assetUrl(path) {
-  if (!path || path.startsWith("http")) return path;
-  return path.startsWith("/") ? `${API}${path}` : path;
-}
 
 function cleanExtractedText(text) {
   const lines = String(text || "")
@@ -43,13 +37,6 @@ function cleanExtractedText(text) {
   return result.join("\n\n");
 }
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API}${path}`, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail || "The server could not complete that request.");
-  return body;
-}
-
 function Metric({ label, value, tone = "ink" }) {
   return <div className={`metric metric-${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
@@ -63,10 +50,18 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState("");
+  const [apiStatus, setApiStatus] = useState("checking");
+
+  useEffect(() => {
+    checkHealth()
+      .then(() => setApiStatus("connected"))
+      .catch(() => setApiStatus("unavailable"));
+  }, []);
 
   const pages = book?.normalized_document?.pages || book?.pages || [];
   const page = pages[selectedPage];
   const figureCount = pages.reduce((total, item) => total + (item.figures?.length || 0), 0);
+  const degradedPageCount = pages.filter((item) => item.status && item.status !== "ok").length;
   const fullText = pages.map((item) => `--- PAGE ${item.page_number} (${item.page_type}) ---\n\n${cleanExtractedText(item.text)}`).join("\n\n");
 
   async function upload(event) {
@@ -91,7 +86,7 @@ function App() {
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><div className="brand-mark">SR</div><div><strong>Smart Reader</strong><span>Visual document intelligence</span></div></div>
-      <div className="topbar-status"><span className="status-dot" /> Florence-2 connected <span className="divider" /> Local-first</div>
+      <div className="topbar-status"><span className={`status-dot status-${apiStatus}`} /> API {apiStatus} <span className="divider" /> Local-first</div>
     </header>
 
     <main className="workspace">
@@ -106,11 +101,11 @@ function App() {
       {busy && <section className="loading-state"><div className="loader" /><div><h2>Preparing your reading room</h2><p>The first run may take a moment while the vision and OCR engines inspect each page.</p></div></section>}
 
       {book && <>
-        <section className="metrics-grid"><Metric label="Total pages" value={book.total_pages} /><Metric label="Digital pages" value={book.digital_pages} tone="green" /><Metric label="Scanned pages" value={book.scanned_pages} tone="amber" /><Metric label="Figures found" value={figureCount} tone="blue" /></section>
+        <section className="metrics-grid"><Metric label="Total pages" value={book.total_pages} /><Metric label="Digital pages" value={book.digital_pages} tone="green" /><Metric label="Scanned pages" value={book.scanned_pages} tone="amber" /><Metric label="Needs review" value={degradedPageCount} tone="red" /></section>
 
         <section className="reader-grid">
-          <aside className="page-rail"><div className="section-label">Pages <span>{pages.length}</span></div><div className="page-list">{pages.map((item, index) => <button key={item.page_number} className={index === selectedPage ? "page-item active" : "page-item"} onClick={() => setSelectedPage(index)}><span>{String(item.page_number).padStart(2, "0")}</span><div><strong>{item.page_type}</strong><small>{item.word_count || 0} words {item.figures?.length ? `· ${item.figures.length} visual${item.figures.length > 1 ? "s" : ""}` : ""}</small></div></button>)}</div></aside>
-          <article className="page-view"><div className="page-view-head"><div><p className="eyebrow">Page {page?.page_number}</p><h2>{page?.page_type === "Scanned" ? "Scanned page" : "Document page"}</h2></div><span className={page?.page_type === "Scanned" ? "type-pill amber" : "type-pill green"}>{page?.page_type}</span></div><div className="page-content"><div className="page-copy"><p className="copy-label">Extracted text</p><p>{page?.text || "No text was detected on this page."}</p></div>{page?.figures?.length > 0 && <div className="page-figures"><p className="copy-label">Visual regions</p><div className="figure-strip">{page.figures.map((figure, index) => <img key={figure.figure_id || index} src={assetUrl(figure.image_path)} alt={figure.figure_label || "Detected visual"} />)}</div></div>}</div></article>
+          <aside className="page-rail"><div className="section-label">Pages <span>{pages.length}</span></div><div className="page-list">{pages.map((item, index) => <button key={item.page_number} className={index === selectedPage ? "page-item active" : "page-item"} onClick={() => setSelectedPage(index)}><span>{String(item.page_number).padStart(2, "0")}</span><div><strong>{item.page_type}</strong><small>{item.word_count || 0} words {item.figures?.length ? `· ${item.figures.length} visual${item.figures.length > 1 ? "s" : ""}` : ""}{item.status && item.status !== "ok" ? ` · ${item.status}` : ""}</small></div></button>)}</div></aside>
+          <article className="page-view"><div className="page-view-head"><div><p className="eyebrow">Page {page?.page_number}</p><h2>{page?.page_type === "Scanned" ? "Scanned page" : "Document page"}</h2></div><span className={page?.status === "failed" ? "type-pill red" : page?.page_type === "Scanned" ? "type-pill amber" : "type-pill green"}>{page?.status === "ok" ? page?.page_type : page?.status}</span></div><div className="page-content">{page?.status === "failed" && <div className="error-banner">This page could not be processed. The remaining pages are available.</div>}<div className="page-copy"><p className="copy-label">Extracted text</p><p>{page?.text || "No text was detected on this page."}</p></div>{page?.figures?.length > 0 && <div className="page-figures"><p className="copy-label">Visual regions</p><div className="figure-strip">{page.figures.map((figure, index) => <img key={figure.figure_id || index} src={assetUrl(figure.image_path)} alt={figure.figure_label || "Detected visual"} />)}</div></div>}</div></article>
         </section>
 
         <section className="qa-section"><div className="qa-heading"><div><p className="eyebrow">Grounded inquiry</p><h2>Ask this book</h2></div><span>Clear explanations from your document</span></div><form className="question-form" onSubmit={ask}><input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="What would you like to understand?" /><input className="api-key-input" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="Optional Gemini API key" autoComplete="off" /><button type="submit" disabled={asking || !question.trim()}>{asking ? "Searching..." : "Ask"}<span>↗</span></button></form>{answer && <div className="answer-layout"><div className="answer-main"><p className="copy-label">Answer</p><div className="answer-text"><Markdown>{answer.answer}</Markdown></div></div>{answer.figures?.length > 0 && <div className="answer-figures"><p className="copy-label">Associated visuals</p>{answer.figures.slice(0, 3).map((figure, index) => <figure key={figure.figure_id || index}><img src={assetUrl(figure.image_path)} alt={figure.figure_label || "Associated visual"} /><figcaption>{figure.figure_label || "Figure"}{figure.caption ? ` · ${figure.caption}` : ""}</figcaption></figure>)}</div>}</div>}</section>

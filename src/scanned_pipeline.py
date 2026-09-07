@@ -3,7 +3,7 @@
 Specialized exclusively for scanned image pages, photographed documents, and OCR.
 Handles:
 - High-DPI page rendering to PIL Image
-- EasyOCR text extraction (primary, 80+ languages) with Tesseract fallback
+- PaddleOCR text extraction with Tesseract fallback
 - Optical caption boundary localization
 - OpenCV morphological contour & visual diagram extraction
 - Scanned subfigure isolation
@@ -20,7 +20,7 @@ import numpy as np
 from PIL import Image
 import pytesseract
 
-from src.ocr_engine import ocr_image
+from src.ocr_engine import ocr_image_with_metadata
 
 from src.storage import IMAGES_DIR
 
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class ScannedPipeline:
-    """Standalone extractor pipeline for Scanned (image-based) PDF pages using YOLOv8, OCR and OpenCV."""
+    """Extractor for scanned pages using OCR, visual detection, and OpenCV."""
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class ScannedPipeline:
         tesseract_ok: bool = True,
         tesseract_msg: str = "",
         visual_detector: Optional[Any] = None,
-        use_easyocr: bool = True,
+        use_primary_ocr: bool = True,
         ocr_languages: Optional[list] = None,
     ):
         self.ocr_dpi = ocr_dpi
@@ -45,7 +45,7 @@ class ScannedPipeline:
         self.tesseract_ok = tesseract_ok
         self.tesseract_msg = tesseract_msg
         self.visual_detector = visual_detector
-        self.use_easyocr = use_easyocr
+        self.use_primary_ocr = use_primary_ocr
         self.ocr_languages = ocr_languages or ["en"]
 
     def render_page_image(self, page: fitz.Page, dpi: int = 150) -> Image.Image:
@@ -57,34 +57,25 @@ class ScannedPipeline:
         return img
 
     def run_ocr(self, pil_img: Image.Image) -> Tuple[str, float, Optional[Dict[str, Any]], str]:
-        """Perform OCR on a rendered page image using EasyOCR (primary) or Tesseract (fallback).
-
-        EasyOCR provides better accuracy (~97%) and supports 80+ languages.
-        Tesseract is used as fallback if EasyOCR is unavailable.
-        Returns: (text, duration, ocr_data_dict, note)
-        """
+        """Run primary OCR, then use Tesseract only when the result is weak."""
         ocr_start = time.perf_counter()
 
-        # ── Primary: EasyOCR ─────────────────────────────────────────────────
-        if self.use_easyocr:
+        if self.use_primary_ocr:
             try:
-                import easyocr
-                easy_text = ocr_image(
+                primary = ocr_image_with_metadata(
                     pil_img,
-                    prefer_easyocr=True,
                     languages=self.ocr_languages,
                     min_confidence=0.3,
                 )
-                ocr_duration = round(time.perf_counter() - ocr_start, 2)
-                if easy_text.strip():
-                    note = f"EasyOCR extracted {len(easy_text)} chars in {ocr_duration}s"
-                    # Build a compatible ocr_data stub for downstream box-parsing
-                    ocr_data = None  # EasyOCR path skips box-based caption detection
-                    return easy_text, ocr_duration, ocr_data, note
-            except Exception:
-                pass  # Fall through to Tesseract
+                primary_quality = self._ocr_quality(primary)
+                if primary_quality >= 0.70 and primary["text"].strip():
+                    ocr_duration = round(time.perf_counter() - ocr_start, 2)
+                    ocr_data = self._primary_ocr_to_tesseract_data(primary)
+                    note = f"PaddleOCR accepted (quality {primary_quality:.2f}, {ocr_duration}s)"
+                    return primary["text"], ocr_duration, ocr_data, note
+            except Exception as exc:
+                logger.warning("Primary OCR failed; trying Tesseract: %s", exc)
 
-        # ── Fallback: Tesseract ───────────────────────────────────────────────
         if not self.tesseract_ok:
             return "", 0.0, None, f"Tesseract unavailable: {self.tesseract_msg}"
 
@@ -105,7 +96,7 @@ class ScannedPipeline:
             cleaned_ocr = " ".join(ocr_text.split())
 
             if len(cleaned_ocr) > 0:
-                note = f"Tesseract OCR extracted {len(cleaned_ocr)} chars in {ocr_duration}s"
+                note = f"Tesseract selected after primary OCR quality check ({len(cleaned_ocr)} chars in {ocr_duration}s)"
             else:
                 note = "Scanned/Image page with no readable text detected by OCR"
 
@@ -113,6 +104,38 @@ class ScannedPipeline:
         except Exception as e:
             ocr_duration = round(time.perf_counter() - ocr_start, 2)
             return "", ocr_duration, None, f"OCR Error: {e}"
+
+    @staticmethod
+    def _ocr_quality(result: Dict[str, Any]) -> float:
+        """Estimate OCR reliability for fallback routing, not semantic correctness."""
+        text = str(result.get("text", "")).strip()
+        confidences = [float(value) for value in result.get("confidences", [])]
+        if not text or not confidences:
+            return 0.0
+
+        confidence_score = sum(confidences) / len(confidences)
+        low_confidence_ratio = sum(value < 0.55 for value in confidences) / len(confidences)
+        alpha_chars = sum(char.isalnum() for char in text)
+        sanity_score = min(1.0, alpha_chars / max(1, len(text) * 0.55))
+        return max(0.0, min(1.0, 0.65 * confidence_score + 0.20 * (1 - low_confidence_ratio) + 0.15 * sanity_score))
+
+    @staticmethod
+    def _primary_ocr_to_tesseract_data(result: Dict[str, Any]) -> Dict[str, Any]:
+        """Adapt primary OCR detections to the existing caption-box parser contract."""
+        boxes = result.get("boxes", [])
+        words = result.get("words", [])
+        confidences = result.get("confidences", [])
+        return {
+            "text": words,
+            "left": [box[0] for box in boxes],
+            "top": [box[1] for box in boxes],
+            "width": [box[2] for box in boxes],
+            "height": [box[3] for box in boxes],
+            "conf": [str(value * 100) for value in confidences],
+            "block_num": list(range(len(words))),
+            "par_num": [1] * len(words),
+            "line_num": list(range(len(words))),
+        }
 
     def _find_drawing_bbox_near_caption(
         self,

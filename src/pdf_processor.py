@@ -2,7 +2,7 @@
 
 Orchestrates document classification and routes each page strictly to:
 1. Digital Pipeline (`DigitalPipeline`): For native text PDFs using PyMuPDF vector & embedded visuals.
-2. Scanned Pipeline (`ScannedPipeline`): For scanned/image pages using EasyOCR & OpenCV contour extraction.
+2. Scanned Pipeline (`ScannedPipeline`): For scanned/image pages using PaddleOCR & OpenCV contour extraction.
 
 Visual detection uses Microsoft Florence-2-base (dense region captioning + OD).
 Text retrieval uses BAAI/bge-large-en-v1.5 semantic embeddings + FAISS.
@@ -11,6 +11,7 @@ Text retrieval uses BAAI/bge-large-en-v1.5 semantic embeddings + FAISS.
 import os
 import re
 import time
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -27,6 +28,8 @@ from src.normalized_document import normalize_legacy_document, normalized_docume
 
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logger = logging.getLogger(__name__)
 
 # --- Constants & Quality Thresholds ---
 _MIN_IMAGE_PIXELS = 5_000          # Min pixel area for content images
@@ -76,6 +79,8 @@ class PageResult:
     ocr_applied: bool
     ocr_time_sec: float
     confidence_note: str
+    status: str = "ok"                    # "ok", "degraded", or "failed"
+    errors: List[Dict[str, str]] = field(default_factory=list)
     image_bytes: Optional[bytes] = None      # PNG preview thumbnail bytes
     images: List[str] = field(default_factory=list)              # List of saved image paths
     figures: List[Dict[str, Any]] = field(default_factory=list)  # Detailed extracted figure dicts
@@ -151,7 +156,7 @@ class PDFProcessor:
     or Scanned (raster image only), then executes the dedicated pipeline without mixing up extraction logic.
 
     Visual Engine: Microsoft Florence-2-base (dense region captioning & open-vocabulary OD).
-    OCR Engine: EasyOCR (deep learning, 80+ languages) with Tesseract fallback.
+    OCR Engine: PaddleOCR with Tesseract fallback.
     Retrieval Engine: BAAI/bge-large-en-v1.5 + FAISS semantic search.
     """
 
@@ -236,6 +241,26 @@ class PDFProcessor:
         # -------------------------------------------------------------
         pil_img = self.scanned_pipeline.render_page_image(page, dpi=self.ocr_dpi)
         ocr_text, ocr_duration, ocr_data, confidence_note = self.scanned_pipeline.run_ocr(pil_img)
+        page_status = "ok"
+        page_errors: List[Dict[str, str]] = []
+        if confidence_note.startswith("Tesseract selected"):
+            page_status = "degraded"
+            page_errors.append({
+                "code": "PRIMARY_OCR_DEGRADED",
+                "message": confidence_note,
+            })
+        elif "unavailable" in confidence_note.lower() or confidence_note.startswith("OCR Error"):
+            page_status = "failed"
+            page_errors.append({
+                "code": "OCR_FAILED",
+                "message": confidence_note,
+            })
+        elif "no readable text" in confidence_note.lower():
+            page_status = "degraded"
+            page_errors.append({
+                "code": "OCR_NO_TEXT",
+                "message": confidence_note,
+            })
 
         saved_images, figure_data, figure_refs = self.scanned_pipeline.extract_visuals(
             page=page,
@@ -261,6 +286,8 @@ class PDFProcessor:
             ocr_applied=True,
             ocr_time_sec=ocr_duration,
             confidence_note=confidence_note,
+            status=page_status,
+            errors=page_errors,
             image_bytes=None,
             images=saved_images,
             figures=figure_data,
@@ -283,10 +310,31 @@ class PDFProcessor:
         start_time = time.perf_counter()
         pages_results: List[PageResult] = []
 
+        def failed_page_result(page_number: int, exc: Exception) -> PageResult:
+            logger.exception("Page %s processing failed", page_number)
+            return PageResult(
+                page_number=page_number,
+                page_type="Unknown",
+                text="",
+                char_count=0,
+                word_count=0,
+                ocr_applied=False,
+                ocr_time_sec=0.0,
+                confidence_note="Page processing failed; remaining pages continued",
+                status="failed",
+                errors=[{
+                    "code": "PAGE_PROCESSING_FAILED",
+                    "message": str(exc),
+                }],
+            )
+
         if total_pages <= 1:
             doc = fitz.open(str(path_obj))
             try:
-                res = self.process_page(doc, doc[0], 1, pdf_stem)
+                try:
+                    res = self.process_page(doc, doc[0], 1, pdf_stem)
+                except Exception as exc:
+                    res = failed_page_result(1, exc)
                 pages_results.append(res)
                 if progress_callback:
                     progress_callback(1, 1, "Analyzing page 1 of 1...")
@@ -300,7 +348,10 @@ class PDFProcessor:
                 t_doc = fitz.open(str(path_obj))
                 try:
                     t_page = t_doc[p_num - 1]
-                    return self.process_page(t_doc, t_page, p_num, pdf_stem)
+                    try:
+                        return self.process_page(t_doc, t_page, p_num, pdf_stem)
+                    except Exception as exc:
+                        return failed_page_result(p_num, exc)
                 finally:
                     t_doc.close()
 

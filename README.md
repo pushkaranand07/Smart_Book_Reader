@@ -26,7 +26,7 @@ flowchart TD
 
 ### Runtime boundaries
 
-1. **Frontend**: `frontend/src/main.jsx` uploads PDFs, browses normalized pages, displays figures, renders answers, and downloads cleaned full text.
+1. **Frontend**: `frontend/src/main.jsx` owns the reading workspace UI; `frontend/src/api/client.js` owns API requests, asset URLs, and health checks.
 2. **API**: `api/main.py` owns HTTP routes, upload handling, cache loading, public media URLs, and question requests.
 3. **Processing**: `src/pdf_processor.py` routes each page to the digital or scanned lane.
 4. **Normalization**: `src/normalized_document.py` converts legacy extractor records into the internal document graph. This is the application contract.
@@ -41,6 +41,7 @@ The normalized document graph is the application contract. Raw extractor output 
 
 - Digital and scanned PDF processing with automatic page routing.
 - Native text, OCR text, vector regions, embedded images, and figure captions.
+- Page-scoped processing status with `ok`, `degraded`, and `failed` results; a failed page does not abort other pages.
 - Canonical pages, figures, captions, and relationships in a normalized document model.
 - Keyword and semantic retrieval with grounded offline answers.
 - Optional Gemini synthesis and visual reranking.
@@ -55,7 +56,7 @@ The normalized document graph is the application contract. Raw extractor output 
 | Web UI | React 18, Vite, `react-markdown` | Document browser, QA interface, cleaned text presentation |
 | API | FastAPI, Uvicorn, Pydantic | Upload, health, book, question, and media endpoints |
 | Native PDF | PyMuPDF | Embedded text, page blocks, vector drawings, and image regions |
-| Scanned PDF | Tesseract, EasyOCR, OpenCV, Pillow | OCR text, coordinates, image analysis, and scanned visual extraction |
+| Scanned PDF | PaddleOCR, Tesseract, OpenCV, Pillow | OCR text, coordinates, image analysis, and scanned visual extraction |
 | Visual model | Florence-2, Transformers, Torch, PEFT | Picture-region detection, training, inference, and evaluation |
 | Retrieval | BGE-large embeddings, Sentence Transformers, FAISS | Semantic page search and evidence ranking |
 | QA | Gemini API, offline extractive fallback | Optional synthesis and visual reranking; local fallback without an API key |
@@ -72,7 +73,7 @@ PageResult records (legacy compatibility)
         v
 normalize_legacy_document(...)
         |
-        +--> Page.raw_text
+        +--> Page.raw_text and processing status/errors
         +--> Figure entities with stable IDs
         +--> Caption entities and explicit references
         +--> Relationships such as caption_of and references
@@ -108,21 +109,32 @@ MinerU-like capabilities are implemented through the project-owned combination o
 
 ## Requirements
 
-- Python 3.11 or newer.
+- Python 3.13 is recommended for the Windows PaddleOCR runtime. Python 3.14 is not currently supported by the available PaddlePaddle wheels.
 - Node.js and npm for the frontend.
 - Tesseract OCR installed and available on PATH, or installed in the standard Windows location.
 - Enough disk space for the local embedding and Florence-2 model directories.
 
 ## Setup
 
-Create and activate the project environment on Windows:
+Create and activate the project environment on Windows. Use a Python 3.13 interpreter for PaddleOCR:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-api.txt
+py -3.13 -m venv .venv313
+.\.venv313\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r .\requirements.txt
+python -m pip install -r .\requirements-api.txt
 ```
+
+PaddleOCR and PaddlePaddle are loaded before OCR inference, while Torch is loaded first to avoid conflicting Windows native DLLs. The OCR adapter disables PaddleX oneDNN by default because some PaddleOCR 3.x models fail in that backend on Windows.
+
+### OCR fallback behavior
+
+Scanned pages use PaddleOCR as the structured primary engine. The result includes text, word boxes, and confidence scores. A quality gate accepts PaddleOCR only when its score is sufficient; otherwise the complete Tesseract result is used. The two OCR outputs are not merged. OCR failures are recorded as degraded page results where possible instead of silently discarding the failure.
+
+### Extraction cache behavior
+
+Extraction JSON and generated visual assets are stored under `data/`. A cache key includes the source file hash, extraction settings, and pipeline version. Re-uploading an unchanged PDF reuses the existing extraction result and does not rewrite the same JSON cache. A changed file, setting, or pipeline version invalidates the old result.
 
 Install frontend dependencies:
 
@@ -149,7 +161,7 @@ $env:GEMINI_API_KEY = "your-api-key"
 Start the API from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn api.main:app --reload --port 8000
+\.venv313\Scripts\python.exe -m uvicorn api.main:app --reload --port 8000
 ```
 
 In a second terminal, start the React frontend:
@@ -198,7 +210,7 @@ The Docker deployment is CPU-based. The first build may be large because the doc
 Run backend tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+\.venv313\Scripts\python.exe -m pytest -q
 ```
 
 Build the frontend:
@@ -222,6 +234,10 @@ data/
 docs/                   Dataset and training guides
 evaluation/             Evaluation output
 frontend/               React/Vite application
+        src/
+                api/                Frontend API client and connectivity helpers
+                main.jsx            Reading workspace UI
+                styles.css          Frontend presentation
 model/                  Local embedding and Florence model assets
 scripts/
   dataset/              Dataset construction and validation

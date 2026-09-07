@@ -41,6 +41,8 @@ def test_normalize_legacy_page_result_builds_graph():
         "page_number": 4,
         "page_type": "Digital",
         "text": "Let us now see what actually happens during the process of photosynthesis. Figure 5.2 shows a leaf test.",
+        "status": "degraded",
+        "errors": [{"code": "PRIMARY_OCR_DEGRADED", "message": "fallback used"}],
         "figures": [
             {
                 "figure_id": "5.2",
@@ -68,6 +70,8 @@ def test_normalize_legacy_page_result_builds_graph():
 
     assert isinstance(page, Page)
     assert page.page_number == 4
+    assert page.status == "degraded"
+    assert page.errors[0]["code"] == "PRIMARY_OCR_DEGRADED"
     assert len(page.figures) == 1
     assert page.figures[0].figure_type == "figure"
     assert len(page.captions) == 1
