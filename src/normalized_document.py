@@ -79,6 +79,9 @@ def _normalize_legacy_figure_id(raw_figure: Dict[str, Any]) -> Optional[str]:
     raw_label = str(raw_figure.get("figure_label") or "").strip()
     raw_caption = str(raw_figure.get("caption") or "").strip()
 
+    if raw_id.startswith(".") or re.search(r"\b(?:Figure|Fig\.?)\s+\.", raw_label, flags=re.IGNORECASE):
+        return None
+
     if _looks_like_activity_label(raw_label, raw_caption):
         return None
 
@@ -102,6 +105,8 @@ def _normalize_legacy_figure_id(raw_figure: Dict[str, Any]) -> Optional[str]:
         if value.startswith("."):
             continue
         if re.fullmatch(r"\d+(?:\.\d+)?(?:\.[a-zA-Z])?", value):
+            if candidate == raw_caption and not parse_explicit_reference(raw_caption):
+                continue
             return value
 
     return None

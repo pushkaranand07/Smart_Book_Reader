@@ -178,6 +178,94 @@ def _keyword_search_pages(
     return ranked_results[:top_k]
 
 
+def _formula_search_pages(pages: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    """Find pages containing formula-like tokens explicitly named in a query."""
+    formula_terms = re.findall(r"\b[A-Z][A-Za-z0-9]*\d*(?:\([A-Za-z0-9]+\))?\b", query)
+    if not formula_terms:
+        return []
+    results = []
+    for page in pages:
+        page_dict = page.to_dict() if hasattr(page, "to_dict") else page
+        text = str(page_dict.get("text") or page_dict.get("raw_text") or "")
+        lower_text = re.sub(r"\s+", " ", text.lower())
+        hits = sum(1 for term in formula_terms if term.lower() in lower_text)
+        if hits:
+            results.append({
+                "page_number": page_dict.get("page_number", 1),
+                "page_type": page_dict.get("page_type", "Digital"),
+                "score": 40 + hits * 10,
+                "semantic_score": 0.0,
+                "matched_terms": formula_terms,
+                "snippet": extract_snippet(text, formula_terms),
+                "text": text,
+                "images": page_dict.get("images", []),
+            })
+    return sorted(results, key=lambda item: item["score"], reverse=True)
+
+
+def _phrase_search_pages(pages: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    """Find pages containing exact multi-word concepts from the question."""
+    query_terms = extract_meaningful_keywords(query)
+    generic_terms = {
+        "chemical", "formula", "equation", "reaction", "formation", "provide", "write",
+        "balanced", "step", "form", "ii", "iii",
+    }
+    phrases = [" ".join(query_terms[index:index + 2]) for index in range(len(query_terms) - 1)]
+    phrases = [phrase for phrase in phrases if len(phrase) >= 8]
+    results = []
+    for page in pages:
+        page_dict = page.to_dict() if hasattr(page, "to_dict") else page
+        text = str(page_dict.get("text") or page_dict.get("raw_text") or "")
+        lower_text = re.sub(r"\s+", " ", text.lower())
+        hits = [phrase for phrase in phrases if phrase in lower_text]
+        if hits:
+            specific_hits = [phrase for phrase in hits if not generic_terms.intersection(phrase.split())]
+            if not specific_hits:
+                continue
+            results.append({
+                "page_number": page_dict.get("page_number", 1),
+                "page_type": page_dict.get("page_type", "Digital"),
+                "score": 100 * len(specific_hits) + 50 * (len(hits) - len(specific_hits)),
+                "semantic_score": 0.0,
+                "matched_terms": hits,
+                "snippet": extract_snippet(text, hits),
+                "text": text,
+                "images": page_dict.get("images", []),
+            })
+    return sorted(results, key=lambda item: item["score"], reverse=True)
+
+
+def _exact_query_phrase_pages(pages: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    """Retrieve pages containing distinctive three-word phrases from a query."""
+    tokens = re.findall(r"[a-z0-9+\-]+", query.lower())
+    stopwords = {"what", "which", "does", "the", "for", "and", "are", "with", "from", "into", "the"}
+    phrases = []
+    for index in range(len(tokens) - 2):
+        phrase_tokens = tokens[index:index + 3]
+        content_count = sum(token not in stopwords for token in phrase_tokens)
+        if content_count >= 2:
+            phrases.append(" ".join(phrase_tokens))
+
+    results = []
+    for page in pages:
+        page_dict = page.to_dict() if hasattr(page, "to_dict") else page
+        text = str(page_dict.get("text") or page_dict.get("raw_text") or "")
+        normalized_text = re.sub(r"\s+", " ", text.lower())
+        hits = [phrase for phrase in phrases if phrase in normalized_text]
+        if hits:
+            results.append({
+                "page_number": page_dict.get("page_number", 1),
+                "page_type": page_dict.get("page_type", "Digital"),
+                "score": 130 + len(hits) * 10,
+                "semantic_score": 0.0,
+                "matched_terms": hits,
+                "snippet": extract_snippet(text, hits),
+                "text": text,
+                "images": page_dict.get("images", []),
+            })
+    return sorted(results, key=lambda item: item["score"], reverse=True)
+
+
 def search_pages(
     pages: List[Dict[str, Any]],
     query: str,
@@ -216,14 +304,30 @@ def search_pages(
     except Exception:
         semantic_results = []
 
+    keyword_results = _keyword_search_pages(pages, query, top_k=top_k * 2)
+    formula_results = _formula_search_pages(pages, query)
+    phrase_results = _phrase_search_pages(pages, query)
+    exact_phrase_results = _exact_query_phrase_pages(pages, query)
+    priority_results = exact_phrase_results + formula_results + phrase_results
+    priority_pages = {item.get("page_number") for item in priority_results}
+    priority_scores = {
+        item.get("page_number"): min(1.0, item.get("score", 0) / 60.0)
+        for item in priority_results
+    }
+    keyword_results = priority_results + [
+        page for page in keyword_results
+        if page.get("page_number") not in priority_pages
+    ]
+
     # ── 2. Fallback: keyword-only if semantic unavailable ─────────────────
     if not semantic_results:
-        return _keyword_search_pages(pages, query, top_k=top_k)
+        return keyword_results[:top_k]
 
     # ── 3. Keyword Boost on Semantic Results ──────────────────────────────
     keywords = extract_meaningful_keywords(query)
     query_lower = query.lower().strip()
     boosted = []
+    seen_pages = set()
     for page in semantic_results:
         text = page.get("text", "")
         text_lower = text.lower()
@@ -235,6 +339,10 @@ def search_pages(
 
         semantic_score = page.get("semantic_score", 0.0)
         combined = semantic_score + kw_bonus
+        if kw_score >= 20:
+            combined = max(combined, 1.0 + min(1.0, kw_score / 100.0))
+        if page.get("page_number") in priority_scores:
+            combined = max(combined, priority_scores[page.get("page_number")])
 
         boosted.append({
             "page_number": page.get("page_number", 1),
@@ -245,6 +353,18 @@ def search_pages(
             "snippet": page.get("snippet", text[:300]),
             "text": text,
             "images": page.get("images", []),
+        })
+        seen_pages.add(page.get("page_number"))
+
+    # Dense retrieval can miss exact equations and captions. Preserve strong
+    # lexical hits so precise textbook wording remains discoverable.
+    for page in keyword_results:
+        if page.get("page_number") in seen_pages:
+            continue
+        boosted.append({
+            **page,
+            "score": round(1.0 + min(1.0, page.get("score", 0) / 100.0), 4),
+            "semantic_score": 0.0,
         })
 
     boosted.sort(key=lambda x: x["score"], reverse=True)

@@ -119,3 +119,21 @@ def test_normalize_legacy_document_and_process_book_expose_adapter_payload(tmp_p
     assert "normalized_document" in result
     assert result["normalized_document"]["pages"][0]["page_number"] == 1
     assert result["normalized_document"]["pages"][0]["captions"][0]["explicit_reference"] == "5.2"
+
+
+def test_normalization_rejects_malformed_ocr_figure_labels():
+    doc = normalize_legacy_document(
+        "doc-1",
+        "example.pdf",
+        "example.pdf",
+        [{
+            "page_number": 2,
+            "figures": [{
+                "figure_id": ".1 can be described as",
+                "figure_label": "Figure .1 can be described as",
+                "caption": "can be described as when magnesium ribbon is burnt in oxygen",
+            }],
+        }],
+    )
+
+    assert doc.pages[0].figures == []

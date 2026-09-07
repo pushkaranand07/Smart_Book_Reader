@@ -33,3 +33,12 @@ button { cursor: pointer; }
 .page-copy { max-width: 980px; }
 .page-copy p:last-child { max-width: 900px; color: #53625a; font-size: 16px; line-height: 1.85; white-space: normal; overflow-wrap: anywhere; }
 .text-section pre { max-width: 1000px; max-height: 560px; padding: 28px 0; color: #53625a; font: 15px/1.8 'Space Grotesk', sans-serif; white-space: pre-wrap; }
+
+.figure-button, .enlarged-figure-button { display: block; padding: 0; border: 1px solid #c3d0c5; background: #fff; }
+.figure-button { flex: 0 0 auto; }
+.figure-button:hover, .enlarged-figure-button:hover { border-color: #e35d3f; }
+.figure-button img { display: block; width: 145px; height: 105px; object-fit: cover; }
+.enlarged-figure-button { width: 100%; }
+.image-lightbox { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 5vh 5vw; background: rgba(23, 34, 31, .88); }
+.image-lightbox img { max-width: 92vw; max-height: 90vh; object-fit: contain; background: #fff; box-shadow: 0 18px 60px rgba(0, 0, 0, .35); }
+.lightbox-close { position: absolute; top: 22px; right: 28px; width: 42px; height: 42px; border: 1px solid rgba(255, 255, 255, .5); background: transparent; color: #fff; font-size: 28px; line-height: 1; }

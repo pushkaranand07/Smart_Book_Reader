@@ -16,6 +16,7 @@ from src.qa_engine import answer_question
 from src.storage import (
     DATA_DIR,
     EXTRACTED_DIR,
+    UPLOADS_DIR,
     hash_file,
     load_extraction_results,
     save_uploaded_file,
@@ -94,6 +95,30 @@ def _book_id(filename: str, content_hash: str) -> str:
     return f"{stem}-{content_hash[:10]}"
 
 
+def _rehydrate_book(book_id: str) -> dict[str, Any] | None:
+    """Restore a book from persistent upload/cache storage after an API restart."""
+    for uploaded_path in UPLOADS_DIR.glob("*.pdf"):
+        try:
+            content_hash = hash_file(uploaded_path)
+        except OSError:
+            continue
+        if _book_id(uploaded_path.name, content_hash) != book_id:
+            continue
+
+        book_data = load_extraction_results(uploaded_path.name, file_hash=content_hash)
+        if book_data is None:
+            try:
+                book_data = process_book(uploaded_path)
+            except Exception:
+                return None
+        else:
+            book_data = _refresh_normalized_document(book_data)
+        book_data["book_id"] = book_id
+        BOOKS[book_id] = book_data
+        return book_data
+    return None
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "smart-book-reader"}
@@ -130,6 +155,8 @@ def upload_book(file: UploadFile = File(...)) -> dict[str, Any]:
 def get_book(book_id: str) -> dict[str, Any]:
     book = BOOKS.get(book_id)
     if book is None:
+        book = _rehydrate_book(book_id)
+    if book is None:
         raise HTTPException(status_code=404, detail="Book is not loaded in this API session.")
     return _public_book(book)
 
@@ -137,6 +164,8 @@ def get_book(book_id: str) -> dict[str, Any]:
 @app.post("/api/books/{book_id}/questions")
 def ask_question(book_id: str, request: QuestionRequest) -> dict[str, Any]:
     book = BOOKS.get(book_id)
+    if book is None:
+        book = _rehydrate_book(book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Book is not loaded in this API session.")
     try:
