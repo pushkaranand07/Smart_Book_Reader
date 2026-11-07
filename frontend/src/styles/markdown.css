@@ -1,0 +1,53 @@
+/* Loaded with the lazy AnswerMarkdown chunk. */
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: 24px 0 10px;
+  color: var(--color-ink);
+  line-height: 1.2;
+}
+
+.markdown-body h1:first-child,
+.markdown-body h2:first-child,
+.markdown-body h3:first-child {
+  margin-top: 0;
+}
+
+.markdown-body p {
+  margin: 0 0 16px;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 8px 0 18px;
+  padding-left: 24px;
+}
+
+.markdown-body li {
+  margin: 7px 0;
+  padding-left: 4px;
+}
+
+.markdown-body strong {
+  color: var(--color-ink);
+}
+
+.markdown-body blockquote {
+  margin: 18px 0;
+  padding: 12px 16px;
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-quote);
+  color: var(--color-body);
+}
+
+.markdown-body code {
+  padding: 1px 4px;
+  background: var(--color-quote);
+  font: 0.9em var(--font-mono);
+}
+
+.markdown-body .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}

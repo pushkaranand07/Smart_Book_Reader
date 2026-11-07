@@ -1,0 +1,25 @@
+/* Loaded with the lazy FullTextPanel chunk. */
+
+.text-link {
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--color-accent-strong);
+  font: 11px var(--font-mono);
+  text-decoration: none;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+}
+
+.full-text {
+  max-width: 1000px;
+  max-height: 560px;
+  margin: 0;
+  padding: 28px 0;
+  overflow: auto;
+  color: var(--color-body);
+  font: 15px/1.8 var(--font-sans);
+  white-space: pre-wrap;
+}

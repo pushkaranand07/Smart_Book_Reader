@@ -1,0 +1,45 @@
+/*
+ * Design tokens. Values keep the original Smart Reader palette; text greys and the accent used for text
+ * were darkened slightly so every text/background pair meets WCAG AA contrast.
+ */
+:root {
+  --font-sans: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, monospace;
+
+  --color-ink: #17221f;
+  --color-text: #394940;
+  --color-body: #53625a;
+  --color-muted: #56655d;
+
+  --color-bg: #e9eee8;
+  --color-surface: #f7f8f3;
+  --color-surface-translucent: rgba(245, 248, 242, 0.75);
+  --color-active: #dce8dc;
+  --color-quote: #edf3ed;
+
+  --color-line: #cad5cc;
+  --color-line-soft: #d4ddd5;
+  --color-line-strong: #bdcabe;
+  --color-panel-border: #c3d0c5;
+
+  /* Accent: decorative uses (borders, large display text) vs. text/controls (AA on light backgrounds). */
+  --color-accent: #e35d3f;
+  --color-accent-strong: #b8402a;
+  --color-accent-soft: #e7a895;
+
+  --color-green: #3d8558;
+  --color-green-text: #2f6342;
+  --color-green-bg: #d9eddc;
+  --color-green-chip: #e1eee2;
+  --color-green-border: #aec3b3;
+  --color-amber: #a86a1f;
+  --color-amber-text: #7d4f12;
+  --color-amber-bg: #f5e7cf;
+  --color-red: #c44b38;
+  --color-red-text: #9f3d2b;
+  --color-red-bg: #fff1ed;
+  --color-red-border: #dc927f;
+
+  --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent-strong);
+  --gutter: 5vw;
+}
