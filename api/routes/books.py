@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
@@ -19,7 +21,9 @@ from api.security import safe_data_path, verify
 
 router = APIRouter(prefix="/api", tags=["books"])
 book_cache = BookDataCache(size=get_settings().book_cache_size)
-ERRORS = {code: {"model": ErrorResponse} for code in (401, 404, 409, 413, 415, 422, 429)}
+ERRORS: dict[int | str, dict[str, Any]] = {
+    code: {"model": ErrorResponse} for code in (401, 404, 409, 413, 415, 422, 429)
+}
 
 
 def _owned_book(session: Session, book_id: str, owner_id: str) -> Book:
@@ -34,7 +38,7 @@ def _summary(book: Book) -> BookSummary:
     return BookSummary(
         book_id=book.id,
         filename=book.filename,
-        status=book.status,  # type: ignore[arg-type]
+        status=book.status,
         total_pages=book.total_pages,
         created_at=book.created_at,
     )
@@ -59,7 +63,7 @@ def upload_book(
     if existing is not None and existing.status != "failed":
         job = session.exec(select(Job).where(Job.book_id == existing.id).order_by(Job.created_at.desc())).first()  # type: ignore[attr-defined]
         if job is not None:
-            return UploadAccepted(book_id=existing.id, job_id=job.id, status=job.status)  # type: ignore[arg-type]
+            return UploadAccepted(book_id=existing.id, job_id=job.id, status=job.status)
 
     book = existing or Book(
         id=new_id("bk"), owner_id=principal.owner_id, sha256=sha, filename=filename, size_bytes=size, total_pages=pages
@@ -75,7 +79,7 @@ def upload_book(
         raise ApiError(409, "DUPLICATE_UPLOAD", "This file is already being processed.") from exc
     dispatch(job.id, settings)
     session.refresh(job)
-    return UploadAccepted(book_id=book.id, job_id=job.id, status=job.status)  # type: ignore[arg-type]
+    return UploadAccepted(book_id=book.id, job_id=job.id, status=job.status)
 
 
 @router.get("/books", response_model=BookList, responses=ERRORS)

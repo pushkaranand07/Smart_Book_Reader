@@ -30,6 +30,20 @@ from src.storage import ensure_directories, sanitize_filename
 
 logger = logging.getLogger(__name__)
 
+# Errors a single page can raise (PyMuPDF errors subclass RuntimeError; OpenCV raises cv2.error, also a
+# RuntimeError subclass in recent builds). One failing page must not abort the rest of the book.
+PAGE_ERRORS: tuple[type[BaseException], ...] = (
+    RuntimeError,
+    ValueError,
+    OSError,
+    KeyError,
+    IndexError,
+    TypeError,
+    AttributeError,
+    ZeroDivisionError,
+    MemoryError,
+)
+
 # --- Constants & Quality Thresholds ---
 _MIN_IMAGE_PIXELS = 5_000  # Min pixel area for content images
 _MIN_STDDEV = 2.0  # Min stddev to reject blank / solid-color masks
@@ -128,8 +142,8 @@ def is_meaningful_content_image(pil_img: Image.Image) -> bool:
             return False
         if sum(stat.stddev) < _MIN_TINT_STDDEV_SUM:
             return False
-    except Exception:
-        pass
+    except (OSError, ValueError) as exc:
+        logger.debug("image statistics unavailable, keeping image: %s", exc)
     return True
 
 
@@ -401,7 +415,7 @@ class PDFProcessor:
             try:
                 try:
                     res = self.process_page(doc, doc[0], 1, pdf_stem)
-                except Exception as exc:
+                except PAGE_ERRORS as exc:
                     res = failed_page_result(1, exc)
                 pages_results.append(res)
                 if progress_callback:
@@ -418,7 +432,7 @@ class PDFProcessor:
                     t_page = t_doc[p_num - 1]
                     try:
                         return self.process_page(t_doc, t_page, p_num, pdf_stem)
-                    except Exception as exc:
+                    except PAGE_ERRORS as exc:
                         return failed_page_result(p_num, exc)
                 finally:
                     t_doc.close()

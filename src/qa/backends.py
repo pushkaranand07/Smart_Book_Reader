@@ -74,7 +74,8 @@ class LexicalBackend:
                 digest = hashlib.blake2b(tok.encode(), digest_size=4).digest()
                 out[row, int.from_bytes(digest, "little") % self.dim] += 1.0
         norms = np.linalg.norm(out, axis=1, keepdims=True)
-        return out / np.maximum(norms, 1e-9)
+        normalized: np.ndarray = out / np.maximum(norms, 1e-9)
+        return normalized
 
     def rerank(self, query: str, texts: list[str]) -> list[float]:
         q = set(tokens(query))

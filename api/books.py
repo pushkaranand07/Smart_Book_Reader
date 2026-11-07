@@ -62,7 +62,7 @@ def store_upload(file: UploadFile, settings: Settings) -> tuple[str, int, Path]:
 
 def count_pages(path: Path) -> int:
     try:
-        with pymupdf.open(path) as doc:
+        with pymupdf.open(path) as doc:  # type: ignore[no-untyped-call]
             return int(doc.page_count)
     except (pymupdf.FileDataError, RuntimeError, ValueError) as exc:
         raise ApiError(422, "INVALID_PDF", "The PDF could not be opened.") from exc
@@ -93,6 +93,8 @@ class BookDataCache:
         except (OSError, json.JSONDecodeError) as exc:
             logger.error("corrupt extraction for %s: %s", sha, exc)
             raise ApiError(500, "EXTRACTION_UNREADABLE", "The processed book could not be read.") from exc
+        if not isinstance(data, dict):
+            raise ApiError(500, "EXTRACTION_UNREADABLE", "The processed book could not be read.")
         with self._lock:
             self._items[sha] = data
             while len(self._items) > self.size:
@@ -168,7 +170,7 @@ def book_detail(settings: Settings, book: Book, data: dict[str, Any]) -> BookDet
     return BookDetail(
         book_id=book.id,
         filename=book.filename,
-        status=book.status,  # type: ignore[arg-type]
+        status=book.status,
         total_pages=book.total_pages,
         created_at=book.created_at,
         digital_pages=book.digital_pages,

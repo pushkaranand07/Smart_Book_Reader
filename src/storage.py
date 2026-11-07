@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -110,8 +111,9 @@ def load_extraction_results(
                 data = json.load(f)
             expected_key = get_cache_key(filename, min_char_threshold, file_hash, ocr_dpi)
             # Stale cache check: if cache key does not match current pipeline version and threshold, reject it
-            if data.get("cache_key") == expected_key:
+            if isinstance(data, dict) and data.get("cache_key") == expected_key:
                 return data
-        except Exception:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            logging.getLogger(__name__).warning("ignoring unreadable extraction cache %s: %s", json_path, exc)
             return None
     return None

@@ -30,8 +30,8 @@ def main() -> int:
             if a.get("category") == TARGET_CLASS:
                 try:
                     areas.append(box_area_ratio(a["bbox"], r["width"], r["height"]))
-                except Exception:
-                    pass
+                except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                    continue
 
     print("DATASET INSPECTION")
     print("=" * 50)

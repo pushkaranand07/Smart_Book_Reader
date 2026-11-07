@@ -125,7 +125,7 @@ def validate_dataset(
                 report.missing_images += 1
                 if report.missing_images <= 5:
                     report.errors.append(f"Missing: {rec.get('image_path')}")
-            except Exception as e:
+            except (OSError, SyntaxError, ValueError) as e:  # PIL verify() raises these for corrupt files
                 report.corrupt_images += 1
                 if report.corrupt_images <= 5:
                     report.errors.append(f"Corrupt {rec.get('image_path')}: {e}")

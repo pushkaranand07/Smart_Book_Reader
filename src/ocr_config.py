@@ -46,7 +46,7 @@ def configure_tesseract() -> tuple[bool, str]:
         try:
             version = pytesseract.get_tesseract_version()
             return True, f"Tesseract OCR ready (v{version}) at {cmd_path}"
-        except Exception as e:
+        except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, OSError, RuntimeError) as e:
             return False, f"Tesseract found at {cmd_path} but error initializing: {e}"
     else:
         return False, "Tesseract executable not found. Please verify Tesseract is installed."

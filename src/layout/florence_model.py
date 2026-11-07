@@ -233,7 +233,7 @@ def run_preflight(
         result["parsing"] = "OK"
         result["sample_output_keys"] = list(parsed.keys())
         result["status"] = "PASS"
-    except Exception as e:
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, ImportError) as e:
         result["error"] = str(e)
 
     return result

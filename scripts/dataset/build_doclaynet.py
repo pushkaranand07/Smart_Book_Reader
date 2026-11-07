@@ -52,6 +52,10 @@ CATEGORY_ID_TO_NAME = {
 PICTURE_ID = 7
 
 
+# Dataset hub failures surface as OSError (HTTP/IO), ValueError (bad split/config), or RuntimeError.
+LOAD_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError, RuntimeError, KeyError, StopIteration, ImportError)
+
+
 def coco_xywh_to_xyxy(
     bbox: list[float],
     width: int,
@@ -104,7 +108,7 @@ def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
             parsed = json.loads(meta)
             if isinstance(parsed, dict):
                 return parsed
-        except Exception:
+        except json.JSONDecodeError:
             pass
     return {}
 
@@ -309,7 +313,7 @@ def load_doclaynet_split(split: str, pilot: bool = False):
                 print(f"  OK: {repo} keys={list(first.keys())[:12]}")
                 # Fresh stream for the collector
                 return load_dataset(repo, split=sp, streaming=True), repo
-            except Exception as e:
+            except LOAD_ERRORS as e:
                 last_err = e
                 print(f"  Failed: {e}")
 
@@ -329,7 +333,7 @@ def load_doclaynet_split(split: str, pilot: bool = False):
                 for pat in patterns:
                     try:
                         files = list(fs.glob(pat))
-                    except Exception:
+                    except (OSError, ValueError):
                         files = []
                     if files:
                         break
@@ -339,7 +343,7 @@ def load_doclaynet_split(split: str, pilot: bool = False):
                 print(f"  Parquet glob: {repo} split={sp} ({len(hf_paths)} files)")
                 ds = load_dataset("parquet", data_files={sp: hf_paths}, split=sp, streaming=True)
                 return ds, repo
-    except Exception as e:
+    except LOAD_ERRORS as e:
         last_err = e
         print(f"  Parquet fallback failed: {e}")
 
@@ -607,7 +611,7 @@ def main() -> int:
                 pilot=args.pilot,
                 include_negative=args.include_negative,
             )
-        except Exception:
+        except LOAD_ERRORS:
             all_records += collect_split(
                 "validation",
                 args.max_val,

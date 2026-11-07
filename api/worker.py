@@ -17,7 +17,7 @@ configure_logging(_settings.log_level, _settings.log_json)
 huey = SqliteHuey(name="smart-book-reader", filename=str(_settings.data_dir / "queue.db"))
 
 
-@huey.task(retries=1, retry_delay=10)
+@huey.task(retries=1, retry_delay=10)  # type: ignore[untyped-decorator]
 def process_job(job_id: str) -> None:
     from api.jobs import run_processing
 

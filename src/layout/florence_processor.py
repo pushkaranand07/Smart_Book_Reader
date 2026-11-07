@@ -27,7 +27,7 @@ class PictureDetectionDataset(Dataset):
 
         try:
             image = Image.open(img_path).convert("RGB")
-        except Exception as e:
+        except (OSError, ValueError) as e:
             raise RuntimeError(
                 f"Failed to load image for record id={rec.get('id')} "
                 f"path={rec.get('image_path')} dataset={rec.get('dataset')} "

@@ -25,7 +25,7 @@ def get_job(
     return JobOut(
         job_id=job.id,
         book_id=job.book_id,
-        status=job.status,  # type: ignore[arg-type]
+        status=job.status,
         progress=min(1.0, max(0.0, job.progress)),
         message=job.message,
         error=job.error,
