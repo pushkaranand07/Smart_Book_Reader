@@ -1,7 +1,7 @@
 {
   "title": "Production hardening (5/10 to 10/10)",
   "branch": "production-hardening",
-  "current": "Phase 1 (QA) + Phase 4 (frontend, parallel worktree)",
+  "current": "Waiting for CI; final golden eval; final report",
   "phases": [
     {
       "name": "Phase 0: Setup and PLAN.md",
@@ -33,39 +33,39 @@
       "tasks": [
         {
           "name": "Section/paragraph chunking with page + section metadata",
-          "done": false
+          "done": true
         },
         {
           "name": "Hybrid retrieval: BM25 + dense (bge-small) + RRF",
-          "done": false
+          "done": true
         },
         {
           "name": "Cross-encoder rerank of top 20",
-          "done": false
+          "done": true
         },
         {
           "name": "Remove unconditional equation boost",
-          "done": false
+          "done": true
         },
         {
           "name": "'Not in this book' detection (reranker + null-answer score)",
-          "done": false
+          "done": true
         },
         {
           "name": "Offline extractive answer, no question echo, citations",
-          "done": false
+          "done": true
         },
         {
           "name": "Document-agnostic prompt",
-          "done": false
+          "done": true
         },
         {
           "name": "Gemini path: timeout/retry/fallback + mocked tests",
-          "done": false
+          "done": true
         },
         {
           "name": "Golden eval set (40+ questions, 10+ unanswerable) + make eval",
-          "done": false
+          "done": true
         },
         {
           "name": "Acceptance metrics met",
@@ -78,35 +78,35 @@
       "tasks": [
         {
           "name": "Remove public /media mount; authenticated media endpoint",
-          "done": false
+          "done": true
         },
         {
           "name": "API key / JWT auth + rate limits",
-          "done": false
+          "done": true
         },
         {
           "name": "Upload limits: size, magic bytes, page count, hash storage",
-          "done": false
+          "done": true
         },
         {
           "name": "Background jobs (202 + /jobs/{id})",
-          "done": false
+          "done": true
         },
         {
           "name": "SQLite book registry + LRU cache",
-          "done": false
+          "done": true
         },
         {
           "name": "Request IDs, structured logs, /healthz, /readyz, metrics",
-          "done": false
+          "done": true
         },
         {
           "name": "Typed error responses",
-          "done": false
+          "done": true
         },
         {
           "name": "Acceptance checks measured",
-          "done": false
+          "done": true
         }
       ]
     },
@@ -115,27 +115,27 @@
       "tasks": [
         {
           "name": "RapidOCR/PaddleOCR as real dependency, Tesseract fallback",
-          "done": false
+          "done": true
         },
         {
           "name": "Real caption detection (Fig. N near bbox), null if none",
-          "done": false
+          "done": true
         },
         {
           "name": "Filter symbol-font bullets",
-          "done": false
+          "done": true
         },
         {
           "name": "Clean figure filenames p{page}_fig{n}.png",
-          "done": false
+          "done": true
         },
         {
           "name": "Scanned-page caption/body separation",
-          "done": false
+          "done": true
         },
         {
           "name": "Labeled caption set (30+ figures) + precision test",
-          "done": false
+          "done": true
         }
       ]
     },
@@ -144,27 +144,27 @@
       "tasks": [
         {
           "name": "TypeScript + component split",
-          "done": false
+          "done": true
         },
         {
           "name": "TanStack Query, job polling, citations",
-          "done": false
+          "done": true
         },
         {
           "name": "Code splitting, bundle < 200 KB gzip",
-          "done": false
+          "done": true
         },
         {
           "name": "Accessibility",
-          "done": false
+          "done": true
         },
         {
           "name": "Single port config (8000)",
-          "done": false
+          "done": true
         },
         {
           "name": "ESLint + Prettier + Vitest + Playwright",
-          "done": false
+          "done": true
         }
       ]
     },
@@ -173,23 +173,23 @@
       "tasks": [
         {
           "name": "Split requirements (api / train / dev), pinned",
-          "done": false
+          "done": true
         },
         {
           "name": "Multi-stage non-root Dockerfile, CPU torch",
-          "done": false
+          "done": true
         },
         {
           "name": "Florence weights via huggingface_hub + /readyz check",
-          "done": false
+          "done": true
         },
         {
           "name": "One PORT config; compose with api + worker + frontend",
-          "done": false
+          "done": true
         },
         {
           "name": ".env.example + GitHub Actions CI",
-          "done": false
+          "done": true
         }
       ]
     },
@@ -198,31 +198,31 @@
       "tasks": [
         {
           "name": "ruff check + format clean",
-          "done": false
+          "done": true
         },
         {
           "name": "mypy clean on api/ and core",
-          "done": false
+          "done": true
         },
         {
           "name": "Replace bare except Exception blocks",
-          "done": false
+          "done": true
         },
         {
           "name": "API tests (auth, limits, jobs, media, ask, restart)",
-          "done": false
+          "done": true
         },
         {
           "name": "Coverage >= 85% on api/ and qa/",
-          "done": false
+          "done": true
         },
         {
           "name": "pre-commit hooks",
-          "done": false
+          "done": true
         },
         {
           "name": "README rewrite",
-          "done": false
+          "done": true
         }
       ]
     },
@@ -243,6 +243,18 @@
     "WIP frontend edits committed to wip/frontend-local-edits (08c5f4a)",
     "Created branch production-hardening from main",
     "21:57 PLAN.md committed (ce7fe9b)",
-    "21:57 Models verified: bge-small, MiniLM reranker, roberta-squad2 (null score works)"
+    "21:57 Models verified: bge-small, MiniLM reranker, roberta-squad2 (null score works)",
+    "22:10 Dev set: recall@5 1.00, unanswerable 6/6, 0 false refusals, 0 echoes",
+    "22:22 Golden eval (67 q): recall@5 1.00, unanswerable 14/14, false refusals 7.5%, 0 echoes, 100% cited",
+    "22:22 CI fixture eval (11 q): all targets met",
+    "22:22 Pushed a1b27b7 (QA engine) and 0c37e37 (eval) to origin/production-hardening",
+    "22:31 Phase 2 done: 70 tests green; /media gone (401/404), 413 on oversized, upload <300ms, restart-safe, 404 lookup ~6ms with 1000 books",
+    "22:31 Golden eval re-run after splitter fix: all targets still met",
+    "23:08 Phase 3: caption precision 88/88, 0 junk captions, scanned sample on RapidOCR (q 0.97-0.98)",
+    "23:08 Phase 4 merged: initial JS 88.6 kB gzip, 46 unit tests, axe 0 violations, Lighthouse a11y 100",
+    "23:08 Real end-to-end (browser -> live API -> real models): PASSED",
+    "23:29 Phase 5: Dockerfile/compose/CI committed; API+huey worker verified as two processes locally",
+    "23:29 Phase 6: ruff 574->0, mypy strict 0 errors, 0 bare excepts, coverage 90%",
+    "23:29 CI: first run failed on a bad opencv pin (fixed); full dep set now resolves for linux/py3.13"
   ]
 }
