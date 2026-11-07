@@ -1,180 +1,106 @@
+"""FastAPI application factory."""
+
 from __future__ import annotations
 
+import logging
 import os
-import re
-from pathlib import Path
-from typing import Any
+import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from slowapi.middleware import SlowAPIMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from src.pdf_processor import process_book
-from src.normalized_document import normalize_legacy_document, normalized_document_to_dict
-from src.qa_engine import answer_question
-from src.storage import (
-    DATA_DIR,
-    EXTRACTED_DIR,
-    UPLOADS_DIR,
-    hash_file,
-    load_extraction_results,
-    save_uploaded_file,
-)
+from api.config import Settings, get_settings
+from api.db import get_engine
+from api.errors import ErrorBody, ErrorResponse, install_error_handlers
+from api.jobs import resume_pending_jobs
+from api.limits import limiter
+from api.observability import RequestIdMiddleware, configure_logging, current_request_id, install_metrics
+from api.routes import books, health, jobs
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-BOOKS: dict[str, dict[str, Any]] = {}
+logger = logging.getLogger(__name__)
+MULTIPART_OVERHEAD = 1024 * 1024
 
 
-def _cors_origins() -> list[str]:
-    """Read approved browser origins from the deployment environment."""
-    configured = os.environ.get("CORS_ORIGINS", "")
-    origins = [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
-    return origins or ["http://localhost:5173", "http://127.0.0.1:5173"]
+class BodySizeLimitMiddleware:
+    """Reject oversized requests from Content-Length before reading the body (413)."""
 
-app = FastAPI(title="Smart Book Reader API", version="1.0.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins(),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.mount("/media", StaticFiles(directory=str(DATA_DIR)), name="media")
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("method") == "POST":
+            length = dict(scope.get("headers") or []).get(b"content-length")
+            if length is not None and length.isdigit() and int(length) > self.max_bytes:
+                from fastapi.responses import JSONResponse
+
+                body = ErrorResponse(
+                    error=ErrorBody(
+                        code="FILE_TOO_LARGE",
+                        message=f"Uploads are limited to {self.max_bytes // (1024 * 1024)} MB.",
+                        request_id=current_request_id(),
+                    )
+                )
+                response = JSONResponse(status_code=413, content=body.model_dump(), headers={"Connection": "close"})
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
-class QuestionRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=2000)
-    api_key: str | None = None
+def _warm_models() -> None:
+    from api.routes.health import mark_qa_models
+    from src.qa.backends import TransformerBackend, get_backend
 
-
-def _media_url(path: str) -> str:
+    backend = get_backend()
+    mark_qa_models("loading")
     try:
-        relative = Path(path).resolve().relative_to(DATA_DIR.resolve())
-    except (OSError, ValueError):
-        return path
-    return "/media/" + relative.as_posix()
+        if isinstance(backend, TransformerBackend):
+            backend.warm_up()
+        mark_qa_models("loaded")
+    except (OSError, RuntimeError, ValueError, ImportError) as exc:
+        logger.error("QA model warm-up failed: %s", exc)
+        mark_qa_models("failed")
 
 
-def _public_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: _public_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_public_value(item) for item in value]
-    if isinstance(value, str) and value.lower().endswith((".png", ".jpg", ".jpeg")):
-        candidate = Path(value)
-        if not candidate.is_absolute():
-            candidate = PROJECT_ROOT / candidate
-        if candidate.exists():
-            return _media_url(str(candidate))
-    return value
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
+    configure_logging(settings.log_level, settings.log_json)
+    os.environ.setdefault("QA_INDEX_DIR", str(settings.index_dir))
+    os.environ.setdefault("FLORENCE_MODE", settings.florence_mode)
 
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        get_engine()
+        resumed = resume_pending_jobs(settings)
+        if resumed:
+            logger.info("re-queued %d unfinished jobs", resumed)
+        if settings.warm_models_on_start:
+            threading.Thread(target=_warm_models, name="model-warmup", daemon=True).start()
+        yield
 
-def _public_book(book: dict[str, Any]) -> dict[str, Any]:
-    return _public_value(book)
-
-
-def _refresh_normalized_document(book: dict[str, Any]) -> dict[str, Any]:
-    pages = book.get("pages", [])
-    if not isinstance(pages, list):
-        return book
-    book["normalized_document"] = normalized_document_to_dict(
-        normalize_legacy_document(
-            document_id=str(book.get("book_id") or Path(book.get("filename", "book")).stem),
-            source_path=str(book.get("filepath", "")),
-            filename=str(book.get("filename", "book.pdf")),
-            legacy_pages=pages,
-            provenance={"source": "api_cache_migration"},
-        )
+    app = FastAPI(title="Smart Book Reader API", version="2.0.0", lifespan=lifespan)
+    app.state.limiter = limiter
+    install_error_handlers(app)
+    app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "X-API-Key", "Authorization", "X-Request-ID"],
+        expose_headers=["X-Request-ID"],
     )
-    return book
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_upload_bytes + MULTIPART_OVERHEAD)
+    app.add_middleware(RequestIdMiddleware)
+    app.include_router(health.router)
+    app.include_router(jobs.router)
+    app.include_router(books.router)
+    install_metrics(app)
+    return app
 
 
-def _book_id(filename: str, content_hash: str) -> str:
-    stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", Path(filename).stem).strip("-").lower() or "book"
-    return f"{stem}-{content_hash[:10]}"
-
-
-def _rehydrate_book(book_id: str) -> dict[str, Any] | None:
-    """Restore a book from persistent upload/cache storage after an API restart."""
-    for uploaded_path in UPLOADS_DIR.glob("*.pdf"):
-        try:
-            content_hash = hash_file(uploaded_path)
-        except OSError:
-            continue
-        if _book_id(uploaded_path.name, content_hash) != book_id:
-            continue
-
-        book_data = load_extraction_results(uploaded_path.name, file_hash=content_hash)
-        if book_data is None:
-            try:
-                book_data = process_book(uploaded_path)
-            except Exception:
-                return None
-        else:
-            book_data = _refresh_normalized_document(book_data)
-        book_data["book_id"] = book_id
-        BOOKS[book_id] = book_data
-        return book_data
-    return None
-
-
-@app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "smart-book-reader"}
-
-
-@app.post("/api/books/upload")
-def upload_book(file: UploadFile = File(...)) -> dict[str, Any]:
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Please upload a PDF file.")
-
-    content = file.file.read()
-    saved_path = save_uploaded_file(content, file.filename)
-    content_hash = hash_file(saved_path)
-    book_id = _book_id(file.filename, content_hash)
-
-    book_data = load_extraction_results(
-        saved_path.name,
-        file_hash=content_hash,
-    )
-    if book_data is None:
-        try:
-            book_data = process_book(saved_path)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"PDF processing failed: {exc}") from exc
-    else:
-        book_data = _refresh_normalized_document(book_data)
-
-    book_data["book_id"] = book_id
-    BOOKS[book_id] = book_data
-    return _public_book(book_data)
-
-
-@app.get("/api/books/{book_id}")
-def get_book(book_id: str) -> dict[str, Any]:
-    book = BOOKS.get(book_id)
-    if book is None:
-        book = _rehydrate_book(book_id)
-    if book is None:
-        raise HTTPException(status_code=404, detail="Book is not loaded in this API session.")
-    return _public_book(book)
-
-
-@app.post("/api/books/{book_id}/questions")
-def ask_question(book_id: str, request: QuestionRequest) -> dict[str, Any]:
-    book = BOOKS.get(book_id)
-    if book is None:
-        book = _rehydrate_book(book_id)
-    if book is None:
-        raise HTTPException(status_code=404, detail="Book is not loaded in this API session.")
-    try:
-        result = answer_question(
-            query=request.question,
-            book_data=book,
-            api_key=request.api_key or os.environ.get("GEMINI_API_KEY"),
-            top_k=5,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Question processing failed: {exc}") from exc
-    return _public_book(result)
+app = create_app()
