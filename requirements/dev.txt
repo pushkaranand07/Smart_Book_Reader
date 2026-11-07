@@ -1,0 +1,8 @@
+# Tests, linting and type checking.
+-r api.txt
+pytest==9.1.1
+pytest-cov==7.1.0
+ruff==0.17.1
+mypy==2.4.1
+pre-commit==4.7.0
+types-PyYAML==6.0.12.20261103

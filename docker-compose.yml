@@ -1,20 +1,45 @@
+# Local production-like stack: API + worker (shared SQLite registry/queue on a volume) + frontend (nginx).
+#   cp .env.example .env   # set API_KEYS and MEDIA_SIGNING_SECRET
+#   docker compose up --build
 services:
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
+    image: smart-book-reader-api:local
+    command: ["api"]
     restart: unless-stopped
+    env_file: .env
     environment:
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT: "false"
+      JOBS_MODE: huey
+      DATA_DIR: /app/data
+      PORT: ${PORT:-8000}
     volumes:
-      - ./data:/app/data
-      - ./model:/app/model:ro
-    expose:
-      - "8000"
+      - data:/app/data
+      - ./model:/app/model
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:${PORT:-8000}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8000')+'/readyz')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+
+  worker:
+    image: smart-book-reader-api:local
+    command: ["worker"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      JOBS_MODE: huey
+      DATA_DIR: /app/data
+    volumes:
+      - data:/app/data
+      - ./model:/app/model
+    depends_on:
+      api:
+        condition: service_started
 
   frontend:
     build:
@@ -26,3 +51,6 @@ services:
         condition: service_healthy
     ports:
       - "5173:80"
+
+volumes:
+  data:
