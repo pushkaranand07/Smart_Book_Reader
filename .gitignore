@@ -42,3 +42,6 @@ model/
 .DS_Store
 Thumbs.db
 
+
+# Generated live progress board (source: docs/progress/tasks.json)
+docs/PA-OH-1.md

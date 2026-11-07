@@ -1,0 +1,102 @@
+{
+  "title": "Production hardening (5/10 to 10/10)",
+  "branch": "production-hardening",
+  "current": "Phase 0: planning, writing PLAN.md",
+  "phases": [
+    {
+      "name": "Phase 0: Setup and PLAN.md",
+      "tasks": [
+        {"name": "Audit and honest rating (5/10)", "done": true},
+        {"name": "Preserve uncommitted edits on wip/frontend-local-edits", "done": true},
+        {"name": "Create production-hardening branch", "done": true},
+        {"name": "Live progress board (this file)", "done": true},
+        {"name": "Write PLAN.md (phases, files, risks, licenses)", "done": false}
+      ]
+    },
+    {
+      "name": "Phase 1: QA quality",
+      "tasks": [
+        {"name": "Section/paragraph chunking with page + section metadata", "done": false},
+        {"name": "Hybrid retrieval: BM25 + dense (bge-small) + RRF", "done": false},
+        {"name": "Cross-encoder rerank of top 20", "done": false},
+        {"name": "Remove unconditional equation boost", "done": false},
+        {"name": "'Not in this book' detection (reranker + null-answer score)", "done": false},
+        {"name": "Offline extractive answer, no question echo, citations", "done": false},
+        {"name": "Document-agnostic prompt", "done": false},
+        {"name": "Gemini path: timeout/retry/fallback + mocked tests", "done": false},
+        {"name": "Golden eval set (40+ questions, 10+ unanswerable) + make eval", "done": false},
+        {"name": "Acceptance metrics met", "done": false}
+      ]
+    },
+    {
+      "name": "Phase 2: API security and robustness",
+      "tasks": [
+        {"name": "Remove public /media mount; authenticated media endpoint", "done": false},
+        {"name": "API key / JWT auth + rate limits", "done": false},
+        {"name": "Upload limits: size, magic bytes, page count, hash storage", "done": false},
+        {"name": "Background jobs (202 + /jobs/{id})", "done": false},
+        {"name": "SQLite book registry + LRU cache", "done": false},
+        {"name": "Request IDs, structured logs, /healthz, /readyz, metrics", "done": false},
+        {"name": "Typed error responses", "done": false},
+        {"name": "Acceptance checks measured", "done": false}
+      ]
+    },
+    {
+      "name": "Phase 3: Extraction, OCR and figures",
+      "tasks": [
+        {"name": "RapidOCR/PaddleOCR as real dependency, Tesseract fallback", "done": false},
+        {"name": "Real caption detection (Fig. N near bbox), null if none", "done": false},
+        {"name": "Filter symbol-font bullets", "done": false},
+        {"name": "Clean figure filenames p{page}_fig{n}.png", "done": false},
+        {"name": "Scanned-page caption/body separation", "done": false},
+        {"name": "Labeled caption set (30+ figures) + precision test", "done": false}
+      ]
+    },
+    {
+      "name": "Phase 4: Frontend",
+      "tasks": [
+        {"name": "TypeScript + component split", "done": false},
+        {"name": "TanStack Query, job polling, citations", "done": false},
+        {"name": "Code splitting, bundle < 200 KB gzip", "done": false},
+        {"name": "Accessibility", "done": false},
+        {"name": "Single port config (8000)", "done": false},
+        {"name": "ESLint + Prettier + Vitest + Playwright", "done": false}
+      ]
+    },
+    {
+      "name": "Phase 5: Deployment",
+      "tasks": [
+        {"name": "Split requirements (api / train / dev), pinned", "done": false},
+        {"name": "Multi-stage non-root Dockerfile, CPU torch", "done": false},
+        {"name": "Florence weights via huggingface_hub + /readyz check", "done": false},
+        {"name": "One PORT config; compose with api + worker + frontend", "done": false},
+        {"name": ".env.example + GitHub Actions CI", "done": false}
+      ]
+    },
+    {
+      "name": "Phase 6: Code quality and tests",
+      "tasks": [
+        {"name": "ruff check + format clean", "done": false},
+        {"name": "mypy clean on api/ and core", "done": false},
+        {"name": "Replace bare except Exception blocks", "done": false},
+        {"name": "API tests (auth, limits, jobs, media, ask, restart)", "done": false},
+        {"name": "Coverage >= 85% on api/ and qa/", "done": false},
+        {"name": "pre-commit hooks", "done": false},
+        {"name": "README rewrite", "done": false}
+      ]
+    },
+    {
+      "name": "Final report",
+      "tasks": [
+        {"name": "Before/after table with evidence", "done": false}
+      ]
+    }
+  ],
+  "log": [
+    "Audit done: 27/27 tests pass, frontend builds, rated 5/10",
+    "Found: model/florence_layout is empty (no fine-tuned weights on disk)",
+    "Found: Docker, Redis, Ollama not installed on this machine",
+    "WIP frontend edits committed to wip/frontend-local-edits (08c5f4a)",
+    "Created branch production-hardening from main"
+  ]
+}
