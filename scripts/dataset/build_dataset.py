@@ -39,11 +39,16 @@ def main() -> int:
     if args.pilot:
         cmd.append("--pilot")
     else:
-        cmd.extend([
-            "--max-train", str(args.max_train),
-            "--max-val", str(args.max_val),
-            "--max-test", str(args.max_test),
-        ])
+        cmd.extend(
+            [
+                "--max-train",
+                str(args.max_train),
+                "--max-val",
+                str(args.max_val),
+                "--max-test",
+                str(args.max_test),
+            ]
+        )
         if not args.no_custom_split:
             cmd.append("--custom-split")
         if not args.positives_only:

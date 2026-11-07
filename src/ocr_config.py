@@ -1,6 +1,6 @@
 import os
 import shutil
-from pathlib import Path
+
 import pytesseract
 
 
@@ -13,8 +13,8 @@ def detect_tesseract_path() -> str | None:
 
     # 2. Check common Windows paths
     local_appdata = os.environ.get("LOCALAPPDATA", "")
-    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-    program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+    program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
 
     candidates = [
         os.path.join(local_appdata, r"Programs\Tesseract-OCR\tesseract.exe"),

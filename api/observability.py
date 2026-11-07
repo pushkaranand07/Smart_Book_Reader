@@ -38,9 +38,15 @@ def configure_logging(level: str = "INFO", json_output: bool = True) -> None:
         cache_logger_on_first_use=True,
     )
     handler = logging.StreamHandler()
-    handler.setFormatter(structlog.stdlib.ProcessorFormatter(foreign_pre_chain=processors, processors=[
-        structlog.stdlib.ProcessorFormatter.remove_processors_meta, renderer,
-    ]))
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=processors,
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                renderer,
+            ],
+        )
+    )
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level.upper())

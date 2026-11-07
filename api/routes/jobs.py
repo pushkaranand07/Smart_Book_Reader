@@ -13,7 +13,9 @@ from api.schemas import JobOut
 router = APIRouter(prefix="/api", tags=["jobs"])
 
 
-@router.get("/jobs/{job_id}", response_model=JobOut, responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}})
+@router.get(
+    "/jobs/{job_id}", response_model=JobOut, responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}}
+)
 def get_job(
     job_id: str, principal: Principal = Depends(require_principal), session: Session = Depends(get_session)
 ) -> JobOut:

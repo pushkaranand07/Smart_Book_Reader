@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from PIL import Image
 
-from src.layout.bbox_utils import BBoxError, TARGET_CLASS, box_area_ratio, validate_bbox_xyxy
+from src.layout.bbox_utils import TARGET_CLASS, BBoxError, box_area_ratio, validate_bbox_xyxy
 from src.layout.paths import MANIFEST_PATH, resolve_image_path
 
 
@@ -19,26 +18,26 @@ from src.layout.paths import MANIFEST_PATH, resolve_image_path
 class ValidationReport:
     status: str = "FAIL"
     total_records: int = 0
-    datasets: Dict[str, int] = field(default_factory=dict)
-    splits: Dict[str, int] = field(default_factory=dict)
-    classification: Dict[str, int] = field(default_factory=dict)
+    datasets: dict[str, int] = field(default_factory=dict)
+    splits: dict[str, int] = field(default_factory=dict)
+    classification: dict[str, int] = field(default_factory=dict)
     missing_images: int = 0
     corrupt_images: int = 0
     invalid_boxes: int = 0
     no_picture: int = 0
-    annotation_counts: Dict[str, int] = field(default_factory=dict)
-    source_overlap: Dict[str, int] = field(default_factory=dict)
+    annotation_counts: dict[str, int] = field(default_factory=dict)
+    source_overlap: dict[str, int] = field(default_factory=dict)
     train_sources: int = 0
     val_sources: int = 0
     test_sources: int = 0
-    picture_area_stats: Dict[str, float] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    picture_area_stats: dict[str, float] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
-def load_manifest(path: Path | str = MANIFEST_PATH) -> List[Dict[str, Any]]:
+def load_manifest(path: Path | str = MANIFEST_PATH) -> list[dict[str, Any]]:
     path = Path(path)
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
             s = line.strip()
@@ -47,7 +46,7 @@ def load_manifest(path: Path | str = MANIFEST_PATH) -> List[Dict[str, Any]]:
     return records
 
 
-def get_source_id(record: Dict[str, Any]) -> str:
+def get_source_id(record: dict[str, Any]) -> str:
     if record.get("source_id"):
         return str(record["source_id"])
     if record.get("source_diagram"):
@@ -57,7 +56,7 @@ def get_source_id(record: Dict[str, Any]) -> str:
     return Path(record.get("image_filename", record.get("image_path", "unknown"))).stem
 
 
-def classify_record(record: Dict[str, Any]) -> str:
+def classify_record(record: dict[str, Any]) -> str:
     ds = record.get("dataset", "")
     if ds == "DocLayNet":
         return "REAL"
@@ -68,10 +67,10 @@ def classify_record(record: Dict[str, Any]) -> str:
     return "OTHER"
 
 
-def normalize_record(record: Dict[str, Any], idx: int) -> Dict[str, Any]:
+def normalize_record(record: dict[str, Any], idx: int) -> dict[str, Any]:
     rec = dict(record)
     if not rec.get("id"):
-        rec["id"] = f"{rec.get('dataset','unknown')}_{idx:06d}"
+        rec["id"] = f"{rec.get('dataset', 'unknown')}_{idx:06d}"
     rec["source_id"] = get_source_id(rec)
     if not rec.get("split"):
         rec["split"] = "train"
@@ -95,7 +94,7 @@ def validate_dataset(
         report.classification[cls] = report.classification.get(cls, 0) + 1
 
     path_counts: Counter = Counter()
-    area_ratios: List[float] = []
+    area_ratios: list[float] = []
 
     for i, rec in enumerate(records):
         path_counts[rec.get("image_path", "")] += 1
@@ -136,7 +135,7 @@ def validate_dataset(
         report.warnings.append(f"{dup_paths} duplicate image_path entries")
 
     # Source-level split leakage
-    split_sources: Dict[str, Set[str]] = defaultdict(set)
+    split_sources: dict[str, set[str]] = defaultdict(set)
     for rec in records:
         split_sources[rec.get("split", "missing")].add(rec["source_id"])
 
@@ -181,11 +180,9 @@ def validate_dataset(
     return report
 
 
-def filter_trainable_records(
-    records: List[Dict[str, Any]], allow_empty: bool = False
-) -> Tuple[List[Dict], int]:
+def filter_trainable_records(records: list[dict[str, Any]], allow_empty: bool = False) -> tuple[list[dict], int]:
     """Keep valid records, optionally retaining negative pages without Pictures."""
-    kept: List[Dict] = []
+    kept: list[dict] = []
     skipped = 0
     for rec in records:
         pics = [a for a in rec.get("annotations", []) if a.get("category") == TARGET_CLASS]
@@ -204,7 +201,7 @@ def filter_trainable_records(
     return kept, skipped
 
 
-def select_overfit_records(records: List[Dict[str, Any]], n: int = 16) -> List[Dict[str, Any]]:
+def select_overfit_records(records: list[dict[str, Any]], n: int = 16) -> list[dict[str, Any]]:
     """Select pages where Picture is NOT the full page (DocLayNet preferred)."""
     preferred_datasets = {"DocLayNet", "SyntheticLayout"}
     candidates = []

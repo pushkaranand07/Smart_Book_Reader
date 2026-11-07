@@ -58,7 +58,12 @@ def test_subfigure_tags_ignore_state_symbols():
 def test_symbol_font_spans_and_style_change_are_dropped():
     block = {
         "lines": [
-            {"spans": [{"text": "n", "font": "Wingdings-Regular", "size": 9}, {"text": "Figure 1.3", "font": "B", "size": 9}]},
+            {
+                "spans": [
+                    {"text": "n", "font": "Wingdings-Regular", "size": 9},
+                    {"text": "Figure 1.3", "font": "B", "size": 9},
+                ]
+            },
             {"spans": [{"text": "Formation of slaked lime", "font": "Bookman-LightItalic", "size": 9}]},
             {"spans": [{"text": "Calcium oxide reacts vigorously", "font": "Bookman-Light", "size": 10.5}]},
         ]
@@ -106,7 +111,9 @@ def test_synthetic_pdf_end_to_end(tmp_path, monkeypatch):
     page.insert_image(pymupdf.Rect(72, 90, 272, 210), stream=_png((200, 120, 40)))
     page.insert_text((72, 228), "Figure 1.1 Burning of a magnesium ribbon", fontsize=9)
     # Far enough below Figure 1.1 (> 220 pt) that it is a separate, uncaptioned picture.
-    page.insert_text((72, 540), "This paragraph sits near the second picture but is not its caption at all.", fontsize=11)
+    page.insert_text(
+        (72, 540), "This paragraph sits near the second picture but is not its caption at all.", fontsize=11
+    )
     page.insert_image(pymupdf.Rect(72, 560, 272, 680), stream=_png((40, 120, 200)))
     doc.save(pdf)
     doc.close()

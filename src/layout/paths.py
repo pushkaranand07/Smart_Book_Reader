@@ -23,10 +23,12 @@ def resolve_image_path(image_path: str, manifest_dir: Path | None = None) -> Pat
     if p.is_absolute():
         candidates.append(p)
     else:
-        candidates.extend([
-            PROJECT_ROOT / p,
-            Path.cwd() / p,
-        ])
+        candidates.extend(
+            [
+                PROJECT_ROOT / p,
+                Path.cwd() / p,
+            ]
+        )
         if manifest_dir:
             candidates.append(manifest_dir / p.name)
             candidates.append(manifest_dir / "images" / p.name)
@@ -37,6 +39,4 @@ def resolve_image_path(image_path: str, manifest_dir: Path | None = None) -> Pat
         if c.exists():
             return c.resolve()
 
-    raise FileNotFoundError(
-        f"Image not found: '{image_path}'. Expected under {IMAGES_DIR}"
-    )
+    raise FileNotFoundError(f"Image not found: '{image_path}'. Expected under {IMAGES_DIR}")

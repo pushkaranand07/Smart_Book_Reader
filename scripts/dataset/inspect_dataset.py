@@ -10,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.layout.bbox_utils import box_area_ratio, TARGET_CLASS
+from src.layout.bbox_utils import TARGET_CLASS, box_area_ratio
 from src.layout.dataset_schema import classify_record, get_source_id, load_manifest, normalize_record
 from src.layout.paths import MANIFEST_PATH
 
@@ -39,18 +39,18 @@ def main() -> int:
     print(f"Datasets: {dict(Counter(r.get('dataset') for r in records))}")
     print(f"Splits: {dict(Counter(r.get('split') for r in records))}")
     print(f"Classification: {dict(Counter(classify_record(r) for r in records))}")
-    print(f"Unique sources: {len(set(get_source_id(r) for r in records))}")
-    print(f"Image width  min/med/max: {min(widths)}/{sorted(widths)[len(widths)//2]}/{max(widths)}")
-    print(f"Image height min/med/max: {min(heights)}/{sorted(heights)[len(heights)//2]}/{max(heights)}")
+    print(f"Unique sources: {len({get_source_id(r) for r in records})}")
+    print(f"Image width  min/med/max: {min(widths)}/{sorted(widths)[len(widths) // 2]}/{max(widths)}")
+    print(f"Image height min/med/max: {min(heights)}/{sorted(heights)[len(heights) // 2]}/{max(heights)}")
     if areas:
         areas.sort()
-        print(f"Picture area ratio min/med/max: {areas[0]:.3f}/{areas[len(areas)//2]:.3f}/{areas[-1]:.3f}")
+        print(f"Picture area ratio min/med/max: {areas[0]:.3f}/{areas[len(areas) // 2]:.3f}/{areas[-1]:.3f}")
         full_page = sum(1 for a in areas if a > 0.95)
         partial = sum(1 for a in areas if 0.05 < a <= 0.95)
         print(f"Full-page Picture boxes (>95%): {full_page}")
         print(f"Partial Picture boxes (5-95%): {partial}")
     print()
-    ds_names = set(r.get("dataset") for r in records)
+    ds_names = {r.get("dataset") for r in records}
     if "DocLayNet" in ds_names:
         print("NOTE: DocLayNet = real human-annotated document pages (Picture-only subset).")
         print("  Categories kept: Picture only (Caption/Table/Text ignored for this experiment).")

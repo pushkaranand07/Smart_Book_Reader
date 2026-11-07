@@ -49,13 +49,15 @@ def _evaluate_subset(model, processor, subset, manifest, device):
         all_gt.append(gt)
         all_pred.append(pred)
         if len(samples) < 3:
-            samples.append({
-                "file": rec.get("image_filename"),
-                "gt": gt,
-                "pred": pred,
-                "labels": det.get("labels"),
-                "raw": (det.get("raw_text") or "")[:100],
-            })
+            samples.append(
+                {
+                    "file": rec.get("image_filename"),
+                    "gt": gt,
+                    "pred": pred,
+                    "labels": det.get("labels"),
+                    "raw": (det.get("raw_text") or "")[:100],
+                }
+            )
     return compute_detection_metrics(all_gt, all_pred), samples
 
 
@@ -67,10 +69,10 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--iou-pass-threshold", type=float, default=0.80)
     parser.add_argument("--min-images-pass-pct", type=float, default=75.0)
-    parser.add_argument("--skip-baseline", action="store_true",
-                        help="Skip pre-training eval (saves time on CPU)")
-    parser.add_argument("--fast", action="store_true",
-                        help="CPU-friendly: 8 samples, 120 updates, lr=3e-5, skip baseline")
+    parser.add_argument("--skip-baseline", action="store_true", help="Skip pre-training eval (saves time on CPU)")
+    parser.add_argument(
+        "--fast", action="store_true", help="CPU-friendly: 8 samples, 120 updates, lr=3e-5, skip baseline"
+    )
     parser.add_argument("--manifest", default=str(MANIFEST_PATH))
     args = parser.parse_args()
 
@@ -183,8 +185,7 @@ def main() -> int:
     print(f"  Recall@50:                  {metrics.get('recall_ap50', 0):.3f}", flush=True)
     print(f"  Precision@50:               {metrics.get('precision_ap50', 0):.3f}", flush=True)
     print(
-        f"  Avg pred boxes/image:       {metrics['avg_pred_per_image']:.2f} "
-        f"(GT: {metrics['avg_gt_per_image']:.2f})",
+        f"  Avg pred boxes/image:       {metrics['avg_pred_per_image']:.2f} (GT: {metrics['avg_gt_per_image']:.2f})",
         flush=True,
     )
 
@@ -202,15 +203,13 @@ def main() -> int:
     if not args.skip_baseline:
         print(f"  IoU improved vs baseline:   {'YES' if iou_improved else 'NO'}", flush=True)
     print(
-        f"  >= {args.min_images_pass_pct:.0f}% images IoU>={args.iou_pass_threshold}:  "
-        f"{'YES' if iou_pass else 'NO'}",
+        f"  >= {args.min_images_pass_pct:.0f}% images IoU>={args.iou_pass_threshold}:  {'YES' if iou_pass else 'NO'}",
         flush=True,
     )
     print(f"  STATUS: {'PASS' if passed else 'FAIL'}", flush=True)
     if not passed:
         print(
-            "  Tip: re-run with --fast, or use Colab T4: "
-            "--optimizer-updates 200 --lr 2e-5 --n-samples 16",
+            "  Tip: re-run with --fast, or use Colab T4: --optimizer-updates 200 --lr 2e-5 --n-samples 16",
             flush=True,
         )
     print("=" * 50, flush=True)

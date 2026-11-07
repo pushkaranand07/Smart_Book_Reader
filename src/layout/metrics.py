@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Sequence, Tuple
+from collections.abc import Sequence
 
 from src.layout.bbox_utils import compute_iou
 
 
 def match_boxes(
-    gt_boxes: List[Sequence[float]],
-    pred_boxes: List[Sequence[float]],
+    gt_boxes: list[Sequence[float]],
+    pred_boxes: list[Sequence[float]],
     iou_threshold: float = 0.5,
-) -> Tuple[int, int, int, List[float]]:
+) -> tuple[int, int, int, list[float]]:
     """Greedy one-to-one matching. Returns (tp, fp, fn, matched_ious)."""
     if not gt_boxes and not pred_boxes:
         return 0, 0, 0, []
@@ -20,7 +20,7 @@ def match_boxes(
     if not pred_boxes:
         return 0, 0, len(gt_boxes), []
 
-    pairs: List[Tuple[float, int, int]] = []
+    pairs: list[tuple[float, int, int]] = []
     for gi, gt in enumerate(gt_boxes):
         for pi, pred in enumerate(pred_boxes):
             iou = compute_iou(gt, pred)
@@ -30,7 +30,7 @@ def match_boxes(
     pairs.sort(reverse=True)
     matched_gt: set[int] = set()
     matched_pred: set[int] = set()
-    matched_ious: List[float] = []
+    matched_ious: list[float] = []
 
     for iou, gi, pi in pairs:
         if gi in matched_gt or pi in matched_pred:
@@ -46,8 +46,8 @@ def match_boxes(
 
 
 def per_image_best_iou(
-    gt_boxes: List[Sequence[float]],
-    pred_boxes: List[Sequence[float]],
+    gt_boxes: list[Sequence[float]],
+    pred_boxes: list[Sequence[float]],
 ) -> float:
     """Best IoU per ground-truth box (0.0 if no predictions)."""
     if not gt_boxes:
@@ -62,20 +62,20 @@ def per_image_best_iou(
 
 
 def compute_detection_metrics(
-    all_gt: List[List[Sequence[float]]],
-    all_pred: List[List[Sequence[float]]],
-    iou_thresholds: List[float] | None = None,
-) -> Dict[str, float]:
+    all_gt: list[list[Sequence[float]]],
+    all_pred: list[list[Sequence[float]]],
+    iou_thresholds: list[float] | None = None,
+) -> dict[str, float]:
     if iou_thresholds is None:
         iou_thresholds = [0.5, 0.75]
 
-    results: Dict[str, float] = {}
+    results: dict[str, float] = {}
     total_gt = sum(len(g) for g in all_gt)
     total_pred = sum(len(p) for p in all_pred)
 
     for thr in iou_thresholds:
         tp_total = fp_total = fn_total = 0
-        for gt_boxes, pred_boxes in zip(all_gt, all_pred):
+        for gt_boxes, pred_boxes in zip(all_gt, all_pred, strict=False):
             tp, fp, fn, _ = match_boxes(gt_boxes, pred_boxes, thr)
             tp_total += tp
             fp_total += fp
@@ -90,11 +90,11 @@ def compute_detection_metrics(
         results[f"f1_{key}"] = f1
 
     # Mean IoU at 0.5 threshold only (avoid double-counting)
-    matched_ious_50: List[float] = []
-    per_image_ious: List[float] = []
+    matched_ious_50: list[float] = []
+    per_image_ious: list[float] = []
     images_above_80 = 0
 
-    for gt_boxes, pred_boxes in zip(all_gt, all_pred):
+    for gt_boxes, pred_boxes in zip(all_gt, all_pred, strict=False):
         _, _, _, ious = match_boxes(gt_boxes, pred_boxes, 0.5)
         matched_ious_50.extend(ious)
         img_iou = per_image_best_iou(gt_boxes, pred_boxes)

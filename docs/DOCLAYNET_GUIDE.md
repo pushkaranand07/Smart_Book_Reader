@@ -123,6 +123,7 @@ printed before that error are still valid; the failure is in evaluation generati
 **Cell 1 — GPU check**
 ```python
 import torch
+
 print("CUDA:", torch.cuda.is_available())
 print("GPU:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "none")
 ```

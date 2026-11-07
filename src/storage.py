@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 # DATA_DIR is shared with the API (api.config.Settings.data_dir) so both read and write the same tree.
@@ -69,7 +69,7 @@ def save_uploaded_file(file_bytes: bytes, filename: str) -> Path:
     return target_path
 
 
-def save_extraction_results(filename: str, data: Dict[str, Any]) -> Path:
+def save_extraction_results(filename: str, data: dict[str, Any]) -> Path:
     """Save extraction metadata and text to data/extracted/<name>_extracted.json."""
     ensure_directories()
     safe_base = Path(sanitize_filename(filename)).stem
@@ -84,10 +84,7 @@ def save_extraction_results(filename: str, data: Dict[str, Any]) -> Path:
         try:
             with json_path.open("r", encoding="utf-8") as file_obj:
                 existing = json.load(file_obj)
-            if (
-                existing.get("cache_key") == data["cache_key"]
-                and existing.get("pipeline_version") == PIPELINE_VERSION
-            ):
+            if existing.get("cache_key") == data["cache_key"] and existing.get("pipeline_version") == PIPELINE_VERSION:
                 return json_path
         except (OSError, json.JSONDecodeError, AttributeError):
             # A partial or malformed cache is replaced by the fresh result below.
@@ -103,13 +100,13 @@ def load_extraction_results(
     min_char_threshold: int = 40,
     file_hash: str = "",
     ocr_dpi: int = 150,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Load previously saved extraction results if valid and not stale."""
     safe_base = Path(sanitize_filename(filename)).stem
     json_path = EXTRACTED_DIR / f"{safe_base}_extracted.json"
     if json_path.exists():
         try:
-            with open(json_path, "r", encoding="utf-8") as f:
+            with open(json_path, encoding="utf-8") as f:
                 data = json.load(f)
             expected_key = get_cache_key(filename, min_char_threshold, file_hash, ocr_dpi)
             # Stale cache check: if cache key does not match current pipeline version and threshold, reject it

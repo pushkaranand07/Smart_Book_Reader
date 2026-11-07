@@ -40,9 +40,7 @@ class BookIndex:
         embeddings = _load_cached(cache_dir, fingerprint, len(chunks))
         if embeddings is None:
             embeddings = (
-                backend.embed([_index_text(c) for c in chunks])
-                if chunks
-                else np.zeros((0, 1), dtype=np.float32)
+                backend.embed([_index_text(c) for c in chunks]) if chunks else np.zeros((0, 1), dtype=np.float32)
             )
             _save_cached(cache_dir, fingerprint, embeddings)
         bm25 = None

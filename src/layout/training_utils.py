@@ -6,17 +6,17 @@ import csv
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from src.layout.environment import environment_text
 
 
 class TrainingLogger:
-    def __init__(self, run_dir: Path, config: Dict[str, Any]):
+    def __init__(self, run_dir: Path, config: dict[str, Any]):
         self.run_dir = Path(run_dir)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.config = config
-        self.history: List[Dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
         self.ema_loss: float | None = None
         self.ema_alpha = 0.1
 

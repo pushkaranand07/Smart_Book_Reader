@@ -13,20 +13,17 @@ import shutil
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.layout.bbox_utils import TARGET_CLASS
-from src.layout.paths import MANIFEST_PATH, TRAINING_DATA_DIR
+from src.layout.paths import MANIFEST_PATH
 
 
-def has_picture_annotation(record: Dict[str, Any]) -> bool:
-    for ann in record.get("annotations", []):
-        if ann.get("category") == TARGET_CLASS:
-            return True
-    return False
+def has_picture_annotation(record: dict[str, Any]) -> bool:
+    return any(ann.get("category") == TARGET_CLASS for ann in record.get("annotations", []))
 
 
 def main() -> int:
@@ -35,7 +32,9 @@ def main() -> int:
     parser.add_argument("--target-negatives", type=int, default=12000, help="Target count of No Picture records")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for deterministic sampling")
     parser.add_argument("--backup", default=None, help="Backup file path (default: <manifest>.backup_45k.jsonl)")
-    parser.add_argument("--delete-unreferenced-images", action="store_true", help="Delete PNGs that are no longer referenced")
+    parser.add_argument(
+        "--delete-unreferenced-images", action="store_true", help="Delete PNGs that are no longer referenced"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print stats without writing files")
     args = parser.parse_args()
 
@@ -50,8 +49,8 @@ def main() -> int:
 
     print(f"Total records loaded: {len(all_records)}")
 
-    positives: List[Dict[str, Any]] = []
-    negatives_by_split: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    positives: list[dict[str, Any]] = []
+    negatives_by_split: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for rec in all_records:
         if has_picture_annotation(rec):
@@ -67,12 +66,14 @@ def main() -> int:
         print(f"    - {sp} negatives: {len(recs)}")
 
     if total_negatives <= args.target_negatives:
-        print(f"Negative count ({total_negatives}) is already <= target ({args.target_negatives}). No reduction needed.")
+        print(
+            f"Negative count ({total_negatives}) is already <= target ({args.target_negatives}). No reduction needed."
+        )
         return 0
 
     # Calculate proportional targets per split
     splits = list(negatives_by_split.keys())
-    split_targets: Dict[str, int] = {}
+    split_targets: dict[str, int] = {}
     allocated = 0
 
     for i, sp in enumerate(splits):
@@ -89,7 +90,7 @@ def main() -> int:
 
     # Deterministic sampling within each split
     rng = random.Random(args.seed)
-    sampled_negatives: List[Dict[str, Any]] = []
+    sampled_negatives: list[dict[str, Any]] = []
 
     for sp, recs in negatives_by_split.items():
         tgt = split_targets[sp]

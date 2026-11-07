@@ -256,8 +256,9 @@ def test_rate_limit_on_ask(make_client, monkeypatch: pytest.MonkeyPatch):
     client = make_client()
     book_id = upload(client).json()["book_id"]
     codes = [
-        client.post(f"/api/books/{book_id}/questions", json={"question": "What is corrosion?"}, headers=auth())
-        .status_code
+        client.post(
+            f"/api/books/{book_id}/questions", json={"question": "What is corrosion?"}, headers=auth()
+        ).status_code
         for _ in range(3)
     ]
     assert codes == [200, 200, 429]

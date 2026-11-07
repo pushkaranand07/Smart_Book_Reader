@@ -21,14 +21,16 @@ def detect_figures(image: Image.Image, adapter_dir: str | None = None) -> list[d
     model, processor, device = load_trained_model(adapter_dir or FLORENCE_LAYOUT_DIR / "best")
     det = generate_detections(model, processor, image, device)
     results = []
-    for bbox, label in zip(det["bboxes"], det["labels"] or ["Picture"] * len(det["bboxes"])):
+    for bbox, label in zip(det["bboxes"], det["labels"] or ["Picture"] * len(det["bboxes"]), strict=False):
         if (label or "").strip().lower() not in ("picture", "diagram", "figure", "image", ""):
             continue
-        results.append({
-            "bbox": [int(b) for b in bbox],
-            "label": "Picture",
-            "score": None,  # Florence OD does not provide calibrated confidence
-        })
+        results.append(
+            {
+                "bbox": [int(b) for b in bbox],
+                "label": "Picture",
+                "score": None,  # Florence OD does not provide calibrated confidence
+            }
+        )
     return results
 
 

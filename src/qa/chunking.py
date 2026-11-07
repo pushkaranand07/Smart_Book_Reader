@@ -101,7 +101,7 @@ def chunk_pages(pages: Iterable[Mapping[str, Any]], document_id: str = "doc") ->
                     chunk_id=f"{document_id}:p{page_number}:c{len(chunks)}",
                     page_number=page_number,
                     text=text,
-                    section=section,
+                    section=section,  # noqa: B023 - intentionally the section current at flush time
                     kind="exercise" if _is_exercise(sentences) else "body",
                     figure_refs=refs,
                 )
@@ -119,9 +119,8 @@ def chunk_pages(pages: Iterable[Mapping[str, Any]], document_id: str = "doc") ->
                 section = line
                 continue
             buffer.append(line)
-            if len(" ".join(buffer).split()) >= TARGET_WORDS and re.search(r"[.!?]$", line):
-                flush()
-            elif len(" ".join(buffer).split()) >= MAX_WORDS:
+            words = len(" ".join(buffer).split())
+            if (words >= TARGET_WORDS and re.search(r"[.!?]$", line)) or words >= MAX_WORDS:
                 flush()
         flush()
     return chunks

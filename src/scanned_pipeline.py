@@ -9,16 +9,16 @@ Handles:
 - Scanned subfigure isolation
 """
 
+import logging
 import re
 import time
-import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import cv2
-import pymupdf as fitz
 import numpy as np
-from PIL import Image
+import pymupdf as fitz
 import pytesseract
+from PIL import Image
 
 from src.captions import CaptionMatch, FigureNamer, clean_caption_text, nearest_caption, parse_caption
 from src.ocr_engine import OCRUnavailable, ocr_image_with_metadata
@@ -38,9 +38,9 @@ class ScannedPipeline:
         render_dpi: int = 200,
         tesseract_ok: bool = True,
         tesseract_msg: str = "",
-        visual_detector: Optional[Any] = None,
+        visual_detector: Any | None = None,
         use_primary_ocr: bool = True,
-        ocr_languages: Optional[list] = None,
+        ocr_languages: list | None = None,
     ):
         self.ocr_dpi = ocr_dpi
         self.render_dpi = render_dpi
@@ -58,7 +58,7 @@ class ScannedPipeline:
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         return img
 
-    def run_ocr(self, pil_img: Image.Image) -> Tuple[str, float, Optional[Dict[str, Any]], str]:
+    def run_ocr(self, pil_img: Image.Image) -> tuple[str, float, dict[str, Any] | None, str]:
         """Run primary OCR, then use Tesseract only when the result is weak."""
         ocr_start = time.perf_counter()
 
@@ -86,12 +86,12 @@ class ScannedPipeline:
             ocr_data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
             ocr_duration = round(time.perf_counter() - ocr_start, 2)
 
-            lines_dict: Dict[Tuple[int, int, int], List[str]] = {}
-            for i in range(len(ocr_data['text'])):
-                t = ocr_data['text'][i].strip()
+            lines_dict: dict[tuple[int, int, int], list[str]] = {}
+            for i in range(len(ocr_data["text"])):
+                t = ocr_data["text"][i].strip()
                 if not t:
                     continue
-                k = (ocr_data['block_num'][i], ocr_data['par_num'][i], ocr_data['line_num'][i])
+                k = (ocr_data["block_num"][i], ocr_data["par_num"][i], ocr_data["line_num"][i])
                 lines_dict.setdefault(k, []).append(t)
 
             line_texts = [" ".join(words) for words in lines_dict.values()]
@@ -99,7 +99,9 @@ class ScannedPipeline:
             cleaned_ocr = " ".join(ocr_text.split())
 
             if len(cleaned_ocr) > 0:
-                note = f"Tesseract selected after primary OCR quality check ({len(cleaned_ocr)} chars in {ocr_duration}s)"
+                note = (
+                    f"Tesseract selected after primary OCR quality check ({len(cleaned_ocr)} chars in {ocr_duration}s)"
+                )
             else:
                 note = "Scanned/Image page with no readable text detected by OCR"
 
@@ -109,7 +111,7 @@ class ScannedPipeline:
             return "", ocr_duration, None, f"OCR Error: {e}"
 
     @staticmethod
-    def _ocr_quality(result: Dict[str, Any]) -> float:
+    def _ocr_quality(result: dict[str, Any]) -> float:
         """Estimate OCR reliability for fallback routing, not semantic correctness."""
         text = str(result.get("text", "")).strip()
         confidences = [float(value) for value in result.get("confidences", [])]
@@ -123,7 +125,7 @@ class ScannedPipeline:
         return max(0.0, min(1.0, 0.65 * confidence_score + 0.20 * (1 - low_confidence_ratio) + 0.15 * sanity_score))
 
     @staticmethod
-    def _primary_ocr_to_tesseract_data(result: Dict[str, Any]) -> Dict[str, Any]:
+    def _primary_ocr_to_tesseract_data(result: dict[str, Any]) -> dict[str, Any]:
         """Adapt primary OCR detections to the existing caption-box parser contract."""
         boxes = result.get("boxes", [])
         words = result.get("words", [])
@@ -143,17 +145,17 @@ class ScannedPipeline:
     def _find_drawing_bbox_near_caption(
         self,
         img_np: np.ndarray,
-        cap_box: List[int],
-        line_boxes: List[List[int]],
-        search_dir: str = 'above',
+        cap_box: list[int],
+        line_boxes: list[list[int]],
+        search_dir: str = "above",
         max_search_dist: int = 600,
-    ) -> Optional[Tuple[int, int, int, int]]:
+    ) -> tuple[int, int, int, int] | None:
         """Find the bounding box of a drawing / illustration near an OCR caption."""
         H, W, _ = img_np.shape
         gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
         cx0, cy0, cx1, cy1 = cap_box
 
-        if search_dir == 'above':
+        if search_dir == "above":
             sy0 = max(int(H * 0.02), cy0 - max_search_dist)
             sy1 = max(sy0 + 20, cy0 - 5)
             sx0 = max(int(W * 0.02), cx0 - 250)
@@ -205,69 +207,69 @@ class ScannedPipeline:
         page_number: int,
         pdf_stem: str,
         pil_page_img: Image.Image,
-        ocr_data: Optional[Dict[str, Any]],
+        ocr_data: dict[str, Any] | None,
         is_meaningful_fn,
         parse_subfigs_fn,
         extract_terms_fn,
         figure_factory_fn,
-    ) -> Tuple[List[str], List[Dict[str, Any]], List[str]]:
+    ) -> tuple[list[str], list[dict[str, Any]], list[str]]:
         """Extract diagrams, figures and captions from a scanned page using YOLOv8, OCR data & OpenCV."""
         img_np = np.array(pil_page_img)
         if len(img_np.shape) == 2:
             img_np = cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
         H, W, _ = img_np.shape
 
-        lines: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
-        line_list: List[Dict[str, Any]] = []
-        line_boxes: List[List[int]] = []
+        lines: dict[tuple[int, int, int], dict[str, Any]] = {}
+        line_list: list[dict[str, Any]] = []
+        line_boxes: list[list[int]] = []
 
-        if ocr_data and 'text' in ocr_data:
+        if ocr_data and "text" in ocr_data:
             # Parse OCR lines & bounding boxes
-            for i in range(len(ocr_data['text'])):
-                t = ocr_data['text'][i].strip()
+            for i in range(len(ocr_data["text"])):
+                t = ocr_data["text"][i].strip()
                 if not t:
                     continue
-                k = (ocr_data['block_num'][i], ocr_data['par_num'][i], ocr_data['line_num'][i])
+                k = (ocr_data["block_num"][i], ocr_data["par_num"][i], ocr_data["line_num"][i])
                 if k not in lines:
                     lines[k] = {
-                        'text': [t],
-                        'box': [
-                            ocr_data['left'][i],
-                            ocr_data['top'][i],
-                            ocr_data['left'][i] + ocr_data['width'][i],
-                            ocr_data['top'][i] + ocr_data['height'][i],
+                        "text": [t],
+                        "box": [
+                            ocr_data["left"][i],
+                            ocr_data["top"][i],
+                            ocr_data["left"][i] + ocr_data["width"][i],
+                            ocr_data["top"][i] + ocr_data["height"][i],
                         ],
                     }
                 else:
-                    lines[k]['text'].append(t)
-                    lines[k]['box'][0] = min(lines[k]['box'][0], ocr_data['left'][i])
-                    lines[k]['box'][1] = min(lines[k]['box'][1], ocr_data['top'][i])
-                    lines[k]['box'][2] = max(lines[k]['box'][2], ocr_data['left'][i] + ocr_data['width'][i])
-                    lines[k]['box'][3] = max(lines[k]['box'][3], ocr_data['top'][i] + ocr_data['height'][i])
+                    lines[k]["text"].append(t)
+                    lines[k]["box"][0] = min(lines[k]["box"][0], ocr_data["left"][i])
+                    lines[k]["box"][1] = min(lines[k]["box"][1], ocr_data["top"][i])
+                    lines[k]["box"][2] = max(lines[k]["box"][2], ocr_data["left"][i] + ocr_data["width"][i])
+                    lines[k]["box"][3] = max(lines[k]["box"][3], ocr_data["top"][i] + ocr_data["height"][i])
 
-            line_list = [{'text': ' '.join(v['text']), 'box': v['box']} for v in lines.values()]
-            line_list.sort(key=lambda item: item['box'][1])
-            line_boxes = [l['box'] for l in line_list]
+            line_list = [{"text": " ".join(v["text"]), "box": v["box"]} for v in lines.values()]
+            line_list.sort(key=lambda item: item["box"][1])
+            line_boxes = [ln["box"] for ln in line_list]
 
-        saved_image_paths: List[str] = []
-        extracted_figures: List[Any] = []
-        figure_refs_found: Set[str] = set()
-        claimed_boxes: List[Tuple[int, int, int, int]] = []
+        saved_image_paths: list[str] = []
+        extracted_figures: list[Any] = []
+        figure_refs_found: set[str] = set()
+        claimed_boxes: list[tuple[int, int, int, int]] = []
         namer = FigureNamer(IMAGES_DIR, pdf_stem, page_number)
-        caption_lines: List[Tuple[Tuple[float, float, float, float], CaptionMatch]] = []
+        caption_lines: list[tuple[tuple[float, float, float, float], CaptionMatch]] = []
         for line in line_list:
-            parsed = parse_caption(line['text'])
+            parsed = parse_caption(line["text"])
             if parsed is not None:
-                caption_lines.append((tuple(line['box']), parsed))
+                caption_lines.append((tuple(line["box"]), parsed))
 
-        def caption_near(box: Tuple[float, float, float, float]) -> Optional[CaptionMatch]:
+        def caption_near(box: tuple[float, float, float, float]) -> CaptionMatch | None:
             # Scanned pages are rendered at ~150 dpi, so 90 px is roughly 0.6 inch.
             return nearest_caption(box, caption_lines, max_gap=90.0)
 
         # 1. Caption-linked Scanned Figure Extraction
-        for idx, l in enumerate(line_list):
-            txt = l['text']
-            m = re.search(r'(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?)\s*([0-9]+(?:\.[0-9]+)?[\w-]*)', txt)
+        for idx, ln in enumerate(line_list):
+            txt = ln["text"]
+            m = re.search(r"(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?)\s*([0-9]+(?:\.[0-9]+)?[\w-]*)", txt)
             if not m:
                 continue
 
@@ -281,14 +283,15 @@ class ScannedPipeline:
                 continue
             # "...as shown in / Fig. 12.2. Why do..." continues the sentence on the line above: not a caption.
             above = [
-                p for p in line_list[:idx]
-                if abs(p['box'][0] - l['box'][0]) <= 40 and -12 <= l['box'][1] - p['box'][3] <= 25
+                p
+                for p in line_list[:idx]
+                if abs(p["box"][0] - ln["box"][0]) <= 40 and -12 <= ln["box"][1] - p["box"][3] <= 25
             ]
-            if above and not re.search(r'[.!?:)]\s*$', above[-1]['text']):
+            if above and not re.search(r"[.!?:)]\s*$", above[-1]["text"]):
                 continue
             fig_id = f"{caption_match.number}.{caption_match.sub}" if caption_match.sub else caption_match.number
 
-            cap_box = list(l['box'])
+            cap_box = list(ln["box"])
             full_cap_text = txt
 
             if is_caption_start:
@@ -298,19 +301,21 @@ class ScannedPipeline:
                     if taken >= 3:
                         break
                     # OCR boxes overlap by a few pixels; the caption column must line up (not the next column).
-                    if -12 <= next_l['box'][1] - cap_box[3] <= 35 and abs(next_l['box'][0] - cap_box[0]) <= 40:
-                        if len(next_l['text']) < 90 and not re.search(
-                            r'^(?:Fig|Activity|Table|[0-9]+\.[0-9]+)', next_l['text']
-                        ):
-                            full_cap_text += ' ' + next_l['text']
-                            taken += 1
-                            cap_box[0] = min(cap_box[0], next_l['box'][0])
-                            cap_box[2] = max(cap_box[2], next_l['box'][2])
-                            cap_box[3] = max(cap_box[3], next_l['box'][3])
+                    aligned = -12 <= next_l["box"][1] - cap_box[3] <= 35 and abs(next_l["box"][0] - cap_box[0]) <= 40
+                    if (
+                        aligned
+                        and len(next_l["text"]) < 90
+                        and not re.search(r"^(?:Fig|Activity|Table|[0-9]+\.[0-9]+)", next_l["text"])
+                    ):
+                        full_cap_text += " " + next_l["text"]
+                        taken += 1
+                        cap_box[0] = min(cap_box[0], next_l["box"][0])
+                        cap_box[2] = max(cap_box[2], next_l["box"][2])
+                        cap_box[3] = max(cap_box[3], next_l["box"][3])
 
-            bbox = self._find_drawing_bbox_near_caption(img_np, cap_box, line_boxes, search_dir='above')
+            bbox = self._find_drawing_bbox_near_caption(img_np, cap_box, line_boxes, search_dir="above")
             if not bbox:
-                bbox = self._find_drawing_bbox_near_caption(img_np, cap_box, line_boxes, search_dir='below')
+                bbox = self._find_drawing_bbox_near_caption(img_np, cap_box, line_boxes, search_dir="below")
 
             if bbox:
                 fx0, fy0, fx1, fy1 = bbox
@@ -359,7 +364,7 @@ class ScannedPipeline:
                             else:
                                 mid_y = fy0 + h // 2
                                 sbox = (fx0, fy0, fx1, mid_y + 10) if s_idx == 0 else (fx0, mid_y - 10, fx1, fy1)
-                            sub_crop = img_np[sbox[1]:sbox[3], sbox[0]:sbox[2]]
+                            sub_crop = img_np[sbox[1] : sbox[3], sbox[0] : sbox[2]]
                             sub_pil = Image.fromarray(sub_crop)
                             if is_meaningful_fn(sub_pil):
                                 sub_out_p, sub_out_fn = namer.next_path()
@@ -396,10 +401,14 @@ class ScannedPipeline:
                         oy0 = max(yy0, cy0)
                         ox1 = min(yx1, cx1)
                         oy1 = min(yy1, cy1)
-                        if ox1 > ox0 and oy1 > oy0:
-                            if (ox1 - ox0) * (oy1 - oy0) > 0.35 * min((yx1 - yx0) * (yy1 - yy0), (cx1 - cx0) * (cy1 - cy0)):
-                                overlap = True
-                                break
+                        if (
+                            ox1 > ox0
+                            and oy1 > oy0
+                            and (ox1 - ox0) * (oy1 - oy0)
+                            > 0.35 * min((yx1 - yx0) * (yy1 - yy0), (cx1 - cx0) * (cy1 - cy0))
+                        ):
+                            overlap = True
+                            break
                     if overlap:
                         continue
 
@@ -442,9 +451,9 @@ class ScannedPipeline:
             margin_x = int(W * 0.04)
             margin_y = int(H * 0.06)
             binary[:margin_y, :] = 0
-            binary[H - margin_y:, :] = 0
+            binary[H - margin_y :, :] = 0
             binary[:, :margin_x] = 0
-            binary[:, W - margin_x:] = 0
+            binary[:, W - margin_x :] = 0
 
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
             closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
@@ -478,7 +487,7 @@ class ScannedPipeline:
                 if overlap:
                     continue
 
-                crop_img = img_np[cy:cy + ch, cx:cx + cw]
+                crop_img = img_np[cy : cy + ch, cx : cx + cw]
                 crop_pil = Image.fromarray(crop_img)
                 if not is_meaningful_fn(crop_pil):
                     continue
@@ -512,6 +521,5 @@ class ScannedPipeline:
             logger.error("OpenCV scanned-visual extraction failed on page %s: %s", page_number, exc)
 
         figure_dicts = [f.to_dict() if hasattr(f, "to_dict") else f for f in extracted_figures]
-        sorted_refs = sorted(list(figure_refs_found))
+        sorted_refs = sorted(figure_refs_found)
         return saved_image_paths, figure_dicts, sorted_refs
-

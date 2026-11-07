@@ -1,20 +1,14 @@
-import tempfile
-
 import fitz
 
 from src.normalized_document import (
-    Caption,
-    Figure,
     NormalizedDocument,
     Page,
-    Relationship,
     make_canonical_id,
     normalize_legacy_document,
     normalize_legacy_page_result,
     parse_explicit_reference,
 )
-from src.pdf_processor import process_book
-from src.pdf_processor import is_figure_or_table
+from src.pdf_processor import is_figure_or_table, process_book
 
 
 def test_make_canonical_id():
@@ -28,12 +22,14 @@ def test_parse_explicit_reference():
 
 
 def test_activity_regions_are_not_visual_figures():
-    assert not is_figure_or_table({
-        "figure_id": ".4",
-        "figure_label": "Figure .4",
-        "caption": "Activity 5.4",
-        "source_type": "vector_region",
-    })
+    assert not is_figure_or_table(
+        {
+            "figure_id": ".4",
+            "figure_label": "Figure .4",
+            "caption": "Activity 5.4",
+            "source_type": "vector_region",
+        }
+    )
 
 
 def test_normalize_legacy_page_result_builds_graph():
@@ -126,14 +122,18 @@ def test_normalization_rejects_malformed_ocr_figure_labels():
         "doc-1",
         "example.pdf",
         "example.pdf",
-        [{
-            "page_number": 2,
-            "figures": [{
-                "figure_id": ".1 can be described as",
-                "figure_label": "Figure .1 can be described as",
-                "caption": "can be described as when magnesium ribbon is burnt in oxygen",
-            }],
-        }],
+        [
+            {
+                "page_number": 2,
+                "figures": [
+                    {
+                        "figure_id": ".1 can be described as",
+                        "figure_label": "Figure .1 can be described as",
+                        "caption": "can be described as when magnesium ribbon is burnt in oxygen",
+                    }
+                ],
+            }
+        ],
     )
 
     assert doc.pages[0].figures == []

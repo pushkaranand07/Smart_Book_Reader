@@ -22,8 +22,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.qa.answer import echoes_question  # noqa: E402
-from src.qa.engine import QAEngine  # noqa: E402
+from src.qa.answer import echoes_question
+from src.qa.engine import QAEngine
 
 TARGETS = {"recall@5": 0.90, "unanswerable_acc": 0.90, "false_refusal": 0.10, "echo": 0, "citation_cov": 1.0}
 
@@ -110,7 +110,8 @@ def print_table(m: dict[str, float]) -> bool:
             continue
         passed = value <= target if key in {"false_refusal", "echo"} else value >= target
         ok &= passed
-        print(f"| {key} | {shown} | {'<=' if key in {'false_refusal', 'echo'} else '>='} {target} | {'yes' if passed else 'NO'} |")
+        op = "<=" if key in {"false_refusal", "echo"} else ">="
+        print(f"| {key} | {shown} | {op} {target} | {'yes' if passed else 'NO'} |")
     return ok
 
 
@@ -118,7 +119,7 @@ def calibrate(results: list[dict[str, Any]]) -> None:
     """Grid-search the sufficiency thresholds on this set (use the dev set, never the golden set)."""
     best = None
     for rerank_t, strong_t, margin_t in itertools.product(
-        [x / 2 for x in range(-8, 9)], [x / 2 for x in range(0, 17)], [x / 2 for x in range(-10, 11)]
+        [x / 2 for x in range(-8, 9)], [x / 2 for x in range(17)], [x / 2 for x in range(-10, 11)]
     ):
         if strong_t < rerank_t:
             continue
@@ -133,8 +134,10 @@ def calibrate(results: list[dict[str, Any]]) -> None:
         if best is None or key > best[0]:
             best = (key, rerank_t, strong_t, margin_t)
     assert best is not None
-    print(f"\nCalibrated: accuracy={best[0][0]:.3f} QA_RERANK_THRESHOLD={best[1]} QA_STRONG_RERANK={best[2]} "
-          f"QA_SPAN_MARGIN_THRESHOLD={best[3]}")
+    print(
+        f"\nCalibrated: accuracy={best[0][0]:.3f} QA_RERANK_THRESHOLD={best[1]} QA_STRONG_RERANK={best[2]} "
+        f"QA_SPAN_MARGIN_THRESHOLD={best[3]}"
+    )
 
 
 def main() -> None:

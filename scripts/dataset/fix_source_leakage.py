@@ -11,7 +11,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.layout.dataset_schema import get_source_id, load_manifest, normalize_record
+from src.layout.dataset_schema import load_manifest, normalize_record
 from src.layout.paths import MANIFEST_PATH
 
 

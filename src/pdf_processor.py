@@ -8,85 +8,87 @@ Visual detection uses Microsoft Florence-2-base (dense region captioning + OD).
 Text retrieval uses BAAI/bge-large-en-v1.5 semantic embeddings + FAISS.
 """
 
+import logging
 import os
 import re
 import time
-import logging
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 import pymupdf as fitz
 from PIL import Image, ImageStat
 
 from src.digital_pipeline import DigitalPipeline, parse_subfigures_from_caption
-from src.ocr_config import configure_tesseract
-from src.scanned_pipeline import ScannedPipeline
-from src.storage import IMAGES_DIR, ensure_directories, sanitize_filename
 from src.florence_detector import FlorenceVisualDetector
 from src.normalized_document import normalize_legacy_document, normalized_document_to_dict
-
-import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from src.ocr_config import configure_tesseract
+from src.scanned_pipeline import ScannedPipeline
+from src.storage import ensure_directories, sanitize_filename
 
 logger = logging.getLogger(__name__)
 
 # --- Constants & Quality Thresholds ---
-_MIN_IMAGE_PIXELS = 5_000          # Min pixel area for content images
-_MIN_STDDEV = 2.0                  # Min stddev to reject blank / solid-color masks
-_MIN_TINT_STDDEV_SUM = 12.0        # Min total channel variance to reject uncaptioned tint/background boxes
-_RENDER_DPI = 150                  # DPI for high-quality diagram/vector crops (optimized for speed)
-_PAD_PT = 20.0                     # Padding around bounding box in points
+_MIN_IMAGE_PIXELS = 5_000  # Min pixel area for content images
+_MIN_STDDEV = 2.0  # Min stddev to reject blank / solid-color masks
+_MIN_TINT_STDDEV_SUM = 12.0  # Min total channel variance to reject uncaptioned tint/background boxes
+_RENDER_DPI = 150  # DPI for high-quality diagram/vector crops (optimized for speed)
+_PAD_PT = 20.0  # Padding around bounding box in points
 
 
 # --- Shared Data Structures ---
 
+
 @dataclass
 class ExtractedFigure:
     """Represents a rich visual figure extracted from a PDF document."""
+
     figure_id: str
     figure_label: str
     page_number: int
     image_path: str
     image_filename: str
-    bounding_box: Tuple[float, float, float, float]
+    bounding_box: tuple[float, float, float, float]
     source_type: str
     width: int
     height: int
     confidence: float
-    subfigure_id: Optional[str] = None
-    caption: Optional[str] = None
-    description: Optional[str] = None
+    subfigure_id: str | None = None
+    caption: str | None = None
+    description: str | None = None
     relevance_score: float = 0.0
-    associated_keywords: List[str] = field(default_factory=list)
-    labels_inside: List[str] = field(default_factory=list)
-    in_text_citations: List[str] = field(default_factory=list)
-    context: Optional[str] = None
-    surrounding_context: Optional[str] = None
+    associated_keywords: list[str] = field(default_factory=list)
+    labels_inside: list[str] = field(default_factory=list)
+    in_text_citations: list[str] = field(default_factory=list)
+    context: str | None = None
+    surrounding_context: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass
 class PageResult:
     """Represents the complete processed result for a single PDF page."""
+
     page_number: int
-    page_type: str                          # "Digital" or "Scanned"
+    page_type: str  # "Digital" or "Scanned"
     text: str
     char_count: int
     word_count: int
     ocr_applied: bool
     ocr_time_sec: float
     confidence_note: str
-    status: str = "ok"                    # "ok", "degraded", or "failed"
-    errors: List[Dict[str, str]] = field(default_factory=list)
-    image_bytes: Optional[bytes] = None      # PNG preview thumbnail bytes
-    images: List[str] = field(default_factory=list)              # List of saved image paths
-    figures: List[Dict[str, Any]] = field(default_factory=list)  # Detailed extracted figure dicts
-    figure_references: List[str] = field(default_factory=list)   # IDs referenced on this page
+    status: str = "ok"  # "ok", "degraded", or "failed"
+    errors: list[dict[str, str]] = field(default_factory=list)
+    image_bytes: bytes | None = None  # PNG preview thumbnail bytes
+    images: list[str] = field(default_factory=list)  # List of saved image paths
+    figures: list[dict[str, Any]] = field(default_factory=list)  # Detailed extracted figure dicts
+    figure_references: list[str] = field(default_factory=list)  # IDs referenced on this page
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d.pop("image_bytes", None)
         return d
@@ -95,7 +97,7 @@ class PageResult:
         try:
             return getattr(self, item)
         except AttributeError:
-            raise KeyError(item)
+            raise KeyError(item) from None
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
@@ -103,10 +105,11 @@ class PageResult:
 
 # --- Shared Helper Functions ---
 
+
 def clean_repeated_lines(raw_text: str) -> str:
     """Deduplicate repeated adjacent lines commonly produced by desktop publishing exports."""
     lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-    unique_lines: List[str] = []
+    unique_lines: list[str] = []
     for line in lines:
         if not unique_lines or line != unique_lines[-1]:
             unique_lines.append(line)
@@ -130,24 +133,81 @@ def is_meaningful_content_image(pil_img: Image.Image) -> bool:
     return True
 
 
-def extract_meaningful_terms(text: str) -> List[str]:
+def extract_meaningful_terms(text: str) -> list[str]:
     """Extract normalized search keywords from a query or text passage."""
     stopwords = {
-        "what", "is", "the", "of", "and", "in", "to", "a", "an", "for", "on",
-        "how", "do", "does", "did", "with", "from", "by", "as", "or", "which", "where",
-        "about", "show", "describe", "explain", "give", "diagram", "figure", "image",
-        "their", "them", "they", "this", "that", "these", "those", "are", "was", "were",
-        "can", "could", "would", "should", "tell", "me", "you", "your", "its", "each",
-        "some", "such", "also", "into", "over", "after", "before", "between", "draw",
-        "illustrate", "represented", "representing", "schematic",
+        "what",
+        "is",
+        "the",
+        "of",
+        "and",
+        "in",
+        "to",
+        "a",
+        "an",
+        "for",
+        "on",
+        "how",
+        "do",
+        "does",
+        "did",
+        "with",
+        "from",
+        "by",
+        "as",
+        "or",
+        "which",
+        "where",
+        "about",
+        "show",
+        "describe",
+        "explain",
+        "give",
+        "diagram",
+        "figure",
+        "image",
+        "their",
+        "them",
+        "they",
+        "this",
+        "that",
+        "these",
+        "those",
+        "are",
+        "was",
+        "were",
+        "can",
+        "could",
+        "would",
+        "should",
+        "tell",
+        "me",
+        "you",
+        "your",
+        "its",
+        "each",
+        "some",
+        "such",
+        "also",
+        "into",
+        "over",
+        "after",
+        "before",
+        "between",
+        "draw",
+        "illustrate",
+        "represented",
+        "representing",
+        "schematic",
     }
-    cleaned = re.sub(r'[^a-zA-Z0-9\s]', ' ', text.lower())
+    cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
     tokens = [tok.strip() for tok in cleaned.split() if tok.strip()]
     meaningful = [t for t in tokens if len(t) > 2 and t not in stopwords]
     return meaningful
 
 
 # --- Main PDF Processor Orchestrator ---
+
 
 class PDFProcessor:
     """Two-Lane PDF Processing Orchestrator with Florence-2 Visual Analysis.
@@ -242,25 +302,31 @@ class PDFProcessor:
         pil_img = self.scanned_pipeline.render_page_image(page, dpi=self.ocr_dpi)
         ocr_text, ocr_duration, ocr_data, confidence_note = self.scanned_pipeline.run_ocr(pil_img)
         page_status = "ok"
-        page_errors: List[Dict[str, str]] = []
+        page_errors: list[dict[str, str]] = []
         if confidence_note.startswith("Tesseract selected"):
             page_status = "degraded"
-            page_errors.append({
-                "code": "PRIMARY_OCR_DEGRADED",
-                "message": confidence_note,
-            })
+            page_errors.append(
+                {
+                    "code": "PRIMARY_OCR_DEGRADED",
+                    "message": confidence_note,
+                }
+            )
         elif "unavailable" in confidence_note.lower() or confidence_note.startswith("OCR Error"):
             page_status = "failed"
-            page_errors.append({
-                "code": "OCR_FAILED",
-                "message": confidence_note,
-            })
+            page_errors.append(
+                {
+                    "code": "OCR_FAILED",
+                    "message": confidence_note,
+                }
+            )
         elif "no readable text" in confidence_note.lower():
             page_status = "degraded"
-            page_errors.append({
-                "code": "OCR_NO_TEXT",
-                "message": confidence_note,
-            })
+            page_errors.append(
+                {
+                    "code": "OCR_NO_TEXT",
+                    "message": confidence_note,
+                }
+            )
 
         saved_images, figure_data, figure_refs = self.scanned_pipeline.extract_visuals(
             page=page,
@@ -297,9 +363,9 @@ class PDFProcessor:
     def process_pdf(
         self,
         pdf_path: str | Path,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
         max_workers: int = 4,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process an entire PDF file concurrently across multiple threads."""
         path_obj = Path(pdf_path)
         doc = fitz.open(str(path_obj))
@@ -308,7 +374,7 @@ class PDFProcessor:
         pdf_stem = sanitize_filename(path_obj.stem)
 
         start_time = time.perf_counter()
-        pages_results: List[PageResult] = []
+        pages_results: list[PageResult] = []
 
         def failed_page_result(page_number: int, exc: Exception) -> PageResult:
             logger.exception("Page %s processing failed", page_number)
@@ -322,10 +388,12 @@ class PDFProcessor:
                 ocr_time_sec=0.0,
                 confidence_note="Page processing failed; remaining pages continued",
                 status="failed",
-                errors=[{
-                    "code": "PAGE_PROCESSING_FAILED",
-                    "message": str(exc),
-                }],
+                errors=[
+                    {
+                        "code": "PAGE_PROCESSING_FAILED",
+                        "message": str(exc),
+                    }
+                ],
             )
 
         if total_pages <= 1:
@@ -389,8 +457,8 @@ def process_book(
     pdf_path: str | Path,
     min_char_threshold: int = 40,
     ocr_dpi: int = 150,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
-) -> Dict[str, Any]:
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> dict[str, Any]:
     """Process a PDF book, handle OCR and visual figure extraction, and persist cache."""
     from src.storage import hash_file, save_extraction_results
 
@@ -438,21 +506,39 @@ def process_book(
 # --- Multi-Signal Relevance Scoring & Anti-Uncertainty Engine ---
 
 _PROCESS_KEYWORDS = {
-    "transport", "exchange", "mechanism", "cycle", "pathway", "movement",
-    "reaction", "flow", "transpiration", "circulation", "transfer", "enter", "enters"
+    "transport",
+    "exchange",
+    "mechanism",
+    "cycle",
+    "pathway",
+    "movement",
+    "reaction",
+    "flow",
+    "transpiration",
+    "circulation",
+    "transfer",
+    "enter",
+    "enters",
 }
 _STRUCTURE_KEYWORDS = {
-    "structure", "system", "anatomy", "cross-section", "sectional", "diagram",
-    "parts", "internal", "view"
+    "structure",
+    "system",
+    "anatomy",
+    "cross-section",
+    "sectional",
+    "diagram",
+    "parts",
+    "internal",
+    "view",
 }
 
 
 def score_figure_relevance(
-    figure: Dict[str, Any],
-    query_terms: List[str],
+    figure: dict[str, Any],
+    query_terms: list[str],
     query_raw: str,
     page_text: str,
-) -> Tuple[float, Dict[str, float]]:
+) -> tuple[float, dict[str, float]]:
     """Calculate multi-signal relevance score for a figure using composite weights.
 
     Formula:
@@ -496,9 +582,9 @@ def score_figure_relevance(
     # 3. In-Text Citation Proximity (20%)
     # Looks for sentence-level co-occurrence of query terms and Fig X.Y
     s_citation = 0.0
-    clean_id = fig_id.split('.')[0] + '.' + fig_id.split('.')[1] if '.' in fig_id else fig_id
+    clean_id = fig_id.split(".")[0] + "." + fig_id.split(".")[1] if "." in fig_id else fig_id
     if clean_id:
-        fig_pat = rf'Fig(?:ure|\.)?\s*{re.escape(clean_id)}'
+        fig_pat = rf"Fig(?:ure|\.)?\s*{re.escape(clean_id)}"
         cit_matches = list(re.finditer(fig_pat, page_text, re.IGNORECASE))
         if cit_matches:
             hit_count = 0
@@ -524,21 +610,13 @@ def score_figure_relevance(
     fig_is_struct = any(w in fig_text_full for w in _STRUCTURE_KEYWORDS)
 
     s_type = 0.5  # neutral baseline
-    if query_is_process and fig_is_process:
-        s_type = 1.0
-    elif query_is_struct and fig_is_struct:
+    if (query_is_process and fig_is_process) or (query_is_struct and fig_is_struct):
         s_type = 1.0
     elif query_is_process and fig_is_struct and not fig_is_process:
         s_type = 0.0
 
     # Composite weighted formula scaled to 0-100
-    composite = (
-        0.40 * s_semantic +
-        0.25 * s_caption +
-        0.20 * s_citation +
-        0.10 * s_context +
-        0.05 * s_type
-    ) * 100.0
+    composite = (0.40 * s_semantic + 0.25 * s_caption + 0.20 * s_citation + 0.10 * s_context + 0.05 * s_type) * 100.0
 
     components = {
         "semantic": round(s_semantic, 2),
@@ -555,7 +633,7 @@ def score_figure_relevance(
     return round(composite, 2), components
 
 
-def is_figure_or_table(fig: Dict[str, Any]) -> bool:
+def is_figure_or_table(fig: dict[str, Any]) -> bool:
     """Return True if the visual represents an educational Figure, Table, Diagram, Map, Chart, Sketch, or Image.
     Rejects pure decorative/ocean photos.
     """
@@ -578,14 +656,63 @@ def is_figure_or_table(fig: Dict[str, Any]) -> bool:
 
     # Accept standard educational terms and labeled textbook entities
     keywords = [
-        "figure", "fig", "table", "image", "diagram", "map", "graph", "chart",
-        "picture", "sketch", "photo", "illustration", "roots", "leaves", "skeleton",
-        "symbol", "emblem", "flag", "circuit", "organ", "cycle", "tree",
-        "seed", "snake", "ant", "atm", "temple", "craft", "model", "experiment",
-        "joint", "bone", "venation", "flower", "fruit", "solar", "mosquito", "animal",
-        "thumb", "hand", "rule", "magnetic", "field", "conductor", "wire", "current",
-        "electric", "needle", "compass", "solenoid", "apparatus", "reaction", "beaker",
-        "motor", "generator", "physics", "science"
+        "figure",
+        "fig",
+        "table",
+        "image",
+        "diagram",
+        "map",
+        "graph",
+        "chart",
+        "picture",
+        "sketch",
+        "photo",
+        "illustration",
+        "roots",
+        "leaves",
+        "skeleton",
+        "symbol",
+        "emblem",
+        "flag",
+        "circuit",
+        "organ",
+        "cycle",
+        "tree",
+        "seed",
+        "snake",
+        "ant",
+        "atm",
+        "temple",
+        "craft",
+        "model",
+        "experiment",
+        "joint",
+        "bone",
+        "venation",
+        "flower",
+        "fruit",
+        "solar",
+        "mosquito",
+        "animal",
+        "thumb",
+        "hand",
+        "rule",
+        "magnetic",
+        "field",
+        "conductor",
+        "wire",
+        "current",
+        "electric",
+        "needle",
+        "compass",
+        "solenoid",
+        "apparatus",
+        "reaction",
+        "beaker",
+        "motor",
+        "generator",
+        "physics",
+        "science",
     ]
     return (
         any(k in text_sig for k in keywords)
@@ -595,11 +722,11 @@ def is_figure_or_table(fig: Dict[str, Any]) -> bool:
 
 
 def find_figures_for_query(
-    page_results: List[Any],
+    page_results: list[Any],
     query: str,
     top_k: int = 4,
     min_score: float = 10.0,
-) -> Tuple[List[Dict[str, Any]], float, bool]:
+) -> tuple[list[dict[str, Any]], float, bool]:
     """Retrieve and rank all relevant figures across the book.
 
     Returns:
@@ -609,7 +736,7 @@ def find_figures_for_query(
     if not query_terms:
         return [], 0.0, False
 
-    scored_figures: List[Tuple[float, Dict[str, Any]]] = []
+    scored_figures: list[tuple[float, dict[str, Any]]] = []
 
     for page in page_results:
         if isinstance(page, dict):
@@ -641,7 +768,7 @@ def find_figures_for_query(
     if len(scored_figures) >= 2:
         margin = scored_figures[0][0] - scored_figures[1][0]
 
-    is_ambiguous = (len(scored_figures) >= 2 and margin < 15.0 and scored_figures[0][0] >= 30.0)
+    is_ambiguous = len(scored_figures) >= 2 and margin < 15.0 and scored_figures[0][0] >= 30.0
 
     max_score = scored_figures[0][0]
     filtered = [fig for s, fig in scored_figures if s >= max(min_score, max_score * 0.45)]

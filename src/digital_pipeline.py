@@ -14,8 +14,7 @@ Handles:
 import io
 import logging
 import re
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import pymupdf as fitz
 from PIL import Image, UnidentifiedImageError
@@ -26,25 +25,24 @@ from src.storage import IMAGES_DIR
 logger = logging.getLogger(__name__)
 _IMAGE_ERRORS = (ValueError, OSError, RuntimeError, UnidentifiedImageError)
 
+
 def is_qr_code(pil_img: Image.Image, page_num: int) -> bool:
     """Identify square chapter QR codes or barcodes on page 1 / book headers."""
     w, h = pil_img.size
     aspect = w / h if h > 0 else 0
-    if 0.85 <= aspect <= 1.15 and page_num == 1 and (w < 400 and h < 400):
-        return True
-    return False
+    return bool(0.85 <= aspect <= 1.15 and page_num == 1 and (w < 400 and h < 400))
 
 
-def parse_subfigures_from_caption(caption_text: str) -> List[Tuple[str, str]]:
+def parse_subfigures_from_caption(caption_text: str) -> list[tuple[str, str]]:
     """Parse subfigure tags and descriptions from a caption string."""
     # Subfigure tags are single letters or small roman numerals: "(a)", "(b)", "(ii)". Not "(aq)" or "(s)" states.
-    matches = re.findall(r'(?<![A-Za-z0-9+\-])\(([a-h]|i{1,3}|iv)\)\s*([^()]+)', caption_text)
-    subfigs: List[Tuple[str, str]] = []
+    matches = re.findall(r"(?<![A-Za-z0-9+\-])\(([a-h]|i{1,3}|iv)\)\s*([^()]+)", caption_text)
+    subfigs: list[tuple[str, str]] = []
     if matches:
         for tag, text in matches:
             clean_tag = tag.strip().lower()
             clean_desc = text.strip().rstrip(".,;")
-            clean_desc = re.sub(r'\s+and$', '', clean_desc, flags=re.IGNORECASE).strip()
+            clean_desc = re.sub(r"\s+and$", "", clean_desc, flags=re.IGNORECASE).strip()
             if clean_desc:
                 subfigs.append((clean_tag, clean_desc))
     return subfigs
@@ -57,7 +55,7 @@ class DigitalPipeline:
         self,
         render_dpi: int = 200,
         pad_pt: float = 20.0,
-        visual_detector: Optional[Any] = None,
+        visual_detector: Any | None = None,
     ):
         self.render_dpi = render_dpi
         self.pad_pt = pad_pt
@@ -68,8 +66,8 @@ class DigitalPipeline:
         page: fitz.Page,
         bbox: fitz.Rect,
         is_meaningful_fn,
-        obstacles: Optional[List[fitz.Rect]] = None,
-    ) -> Optional[Image.Image]:
+        obstacles: list[fitz.Rect] | None = None,
+    ) -> Image.Image | None:
         """Render page at specified DPI and crop the dynamic padded bounding box with obstacle avoidance."""
         page_rect = page.rect
         w = bbox.width
@@ -119,9 +117,9 @@ class DigitalPipeline:
         page_rect: fitz.Rect,
         page_number: int,
         is_meaningful_fn,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Extract embedded raster images from digital page."""
-        valid_images: List[Dict[str, Any]] = []
+        valid_images: list[dict[str, Any]] = []
         image_list = page.get_images(full=True)
 
         for img_idx, img_info in enumerate(image_list):
@@ -144,20 +142,19 @@ class DigitalPipeline:
                 rects = list(page.get_image_rects(xref))
                 bbox = rects[0] if rects else fitz.Rect(0, 0, page_rect.width, page_rect.height)
 
-                if (
-                    bbox.width >= page_rect.width * 0.90
-                    and bbox.height >= page_rect.height * 0.90
-                ):
+                if bbox.width >= page_rect.width * 0.90 and bbox.height >= page_rect.height * 0.90:
                     continue
 
-                valid_images.append({
-                    "xref": xref,
-                    "img_idx": img_idx + 1,
-                    "bbox": bbox,
-                    "pil_img": pil_img,
-                    "ext": base_img.get("ext", "png"),
-                    "raw_bytes": image_bytes,
-                })
+                valid_images.append(
+                    {
+                        "xref": xref,
+                        "img_idx": img_idx + 1,
+                        "bbox": bbox,
+                        "pil_img": pil_img,
+                        "ext": base_img.get("ext", "png"),
+                        "raw_bytes": image_bytes,
+                    }
+                )
             except _IMAGE_ERRORS as exc:
                 logger.debug("skipping unreadable embedded image xref=%s on page %s: %s", xref, page_number, exc)
                 continue
@@ -168,9 +165,9 @@ class DigitalPipeline:
         self,
         page: fitz.Page,
         page_rect: fitz.Rect,
-    ) -> List[fitz.Rect]:
+    ) -> list[fitz.Rect]:
         """Extract vector drawing boundaries, excluding margins and headers."""
-        valid_drawings: List[fitz.Rect] = []
+        valid_drawings: list[fitz.Rect] = []
         try:
             raw_drawings = page.get_drawings()
             for d in raw_drawings:
@@ -186,13 +183,13 @@ class DigitalPipeline:
             logger.warning("vector drawing extraction failed: %s", exc)
         return valid_drawings
 
-    def _detect_captions(self, page: fitz.Page) -> List[Dict[str, Any]]:
+    def _detect_captions(self, page: fitz.Page) -> list[dict[str, Any]]:
         """Find real captions: text blocks that START with "Fig./Figure/Table N(.N)".
 
         Spans set in symbol fonts (Wingdings bullets) are dropped before matching, and body text that merely
         mentions a figure is ignored.
         """
-        captions: List[Dict[str, Any]] = []
+        captions: list[dict[str, Any]] = []
         try:
             blocks = page.get_text("dict").get("blocks", [])
         except (RuntimeError, ValueError) as exc:
@@ -209,31 +206,35 @@ class DigitalPipeline:
                 continue
             fig_id = f"{match.number}.{match.sub}" if match.sub else match.number
             label_text = f"{match.label} {match.text}" if match.text else match.label
-            captions.append({
-                "fig_id": fig_id,
-                "prefix": match.label,
-                "bbox": fitz.Rect(block["bbox"]),
-                "text": label_text,
-                "caption": match.text,
-                "match": match,
-            })
+            captions.append(
+                {
+                    "fig_id": fig_id,
+                    "prefix": match.label,
+                    "bbox": fitz.Rect(block["bbox"]),
+                    "text": label_text,
+                    "caption": match.text,
+                    "match": match,
+                }
+            )
         return captions
 
-    def _detect_subfig_labels(self, blocks: List[Any]) -> List[Dict[str, Any]]:
+    def _detect_subfig_labels(self, blocks: list[Any]) -> list[dict[str, Any]]:
         """Detect standalone subfigure labels like (a), (b)."""
-        subfig_labels: List[Dict[str, Any]] = []
+        subfig_labels: list[dict[str, Any]] = []
         for b in blocks:
             txt = b[4].strip()
-            for m in re.finditer(r'\(([a-zA-Z0-9]+)\)', txt):
-                subfig_labels.append({
-                    "label": m.group(1).lower(),
-                    "bbox": fitz.Rect(b[:4]),
-                })
+            for m in re.finditer(r"\(([a-zA-Z0-9]+)\)", txt):
+                subfig_labels.append(
+                    {
+                        "label": m.group(1).lower(),
+                        "bbox": fitz.Rect(b[:4]),
+                    }
+                )
         return subfig_labels
 
     def _extract_nearby_context(self, page_text: str, label_pattern: str) -> str:
         """Extract surrounding text sentences within 350 characters of a figure mention."""
-        match = re.search(rf'\b{re.escape(label_pattern)}\b', page_text, re.IGNORECASE)
+        match = re.search(rf"\b{re.escape(label_pattern)}\b", page_text, re.IGNORECASE)
         if not match:
             return page_text[:400].replace("\n", " ").strip()
         pos = match.start()
@@ -244,45 +245,39 @@ class DigitalPipeline:
     def get_nearby_visuals(
         self,
         c_bbox: fitz.Rect,
-        valid_drawings: List[fitz.Rect],
-        valid_images: List[Dict[str, Any]],
-        all_captions_on_page: List[Dict[str, Any]],
+        valid_drawings: list[fitz.Rect],
+        valid_images: list[dict[str, Any]],
+        all_captions_on_page: list[dict[str, Any]],
         max_vertical: float = 220.0,
         max_horizontal: float = 350.0,
-    ) -> Tuple[List[fitz.Rect], List[Dict[str, Any]], Optional[float], Optional[float]]:
+    ) -> tuple[list[fitz.Rect], list[dict[str, Any]], float | None, float | None]:
         """Collect visuals within 220pt constrained by hard above/below caption stop boundaries."""
         # Find hard stops (other captions on this page)
-        above_stop = max(
-            (cap["bbox"].y1 for cap in all_captions_on_page if cap["bbox"].y1 < c_bbox.y0),
-            default=None
-        )
-        below_stop = min(
-            (cap["bbox"].y0 for cap in all_captions_on_page if cap["bbox"].y0 > c_bbox.y1),
-            default=None
-        )
+        above_stop = max((cap["bbox"].y1 for cap in all_captions_on_page if cap["bbox"].y1 < c_bbox.y0), default=None)
+        below_stop = min((cap["bbox"].y0 for cap in all_captions_on_page if cap["bbox"].y0 > c_bbox.y1), default=None)
 
-        fig_drawings: List[fitz.Rect] = []
+        fig_drawings: list[fitz.Rect] = []
         for r in valid_drawings:
             # Visual is above caption (caption sits below)
-            if 0 <= (c_bbox.y0 - r.y1) <= max_vertical and abs(r.x0 - c_bbox.x0) <= max_horizontal:
-                if above_stop is None or r.y0 >= above_stop:
-                    fig_drawings.append(r)
-            # Visual is below caption (caption sits above)
-            elif 0 <= (r.y0 - c_bbox.y1) <= max_vertical and abs(r.x0 - c_bbox.x0) <= max_horizontal:
-                if below_stop is None or r.y1 <= below_stop:
-                    fig_drawings.append(r)
+            near_x = abs(r.x0 - c_bbox.x0) <= max_horizontal
+            above = 0 <= (c_bbox.y0 - r.y1) <= max_vertical and near_x
+            below = 0 <= (r.y0 - c_bbox.y1) <= max_vertical and near_x
+            if (above and (above_stop is None or r.y0 >= above_stop)) or (
+                not above and below and (below_stop is None or r.y1 <= below_stop)
+            ):
+                fig_drawings.append(r)
 
-        fig_images: List[Dict[str, Any]] = []
+        fig_images: list[dict[str, Any]] = []
         for img in valid_images:
             r = img["bbox"]
             # Image is above caption
-            if 0 <= (c_bbox.y0 - r.y1) <= max_vertical and abs(r.x0 - c_bbox.x0) <= max_horizontal:
-                if above_stop is None or r.y0 >= above_stop:
-                    fig_images.append(img)
-            # Image is below caption
-            elif 0 <= (r.y0 - c_bbox.y1) <= max_vertical and abs(r.x0 - c_bbox.x0) <= max_horizontal:
-                if below_stop is None or r.y1 <= below_stop:
-                    fig_images.append(img)
+            near_x = abs(r.x0 - c_bbox.x0) <= max_horizontal
+            above = 0 <= (c_bbox.y0 - r.y1) <= max_vertical and near_x
+            below = 0 <= (r.y0 - c_bbox.y1) <= max_vertical and near_x
+            if (above and (above_stop is None or r.y0 >= above_stop)) or (
+                not above and below and (below_stop is None or r.y1 <= below_stop)
+            ):
+                fig_images.append(img)
 
         return fig_drawings, fig_images, above_stop, below_stop
 
@@ -296,7 +291,7 @@ class DigitalPipeline:
         clean_text_fn,
         extract_terms_fn,
         figure_factory_fn,
-    ) -> Tuple[List[str], List[Dict[str, Any]], List[str]]:
+    ) -> tuple[list[str], list[dict[str, Any]], list[str]]:
         """Run digital visual extraction pipeline for a single page."""
         page_rect = page.rect
         blocks = page.get_text("blocks")
@@ -308,9 +303,9 @@ class DigitalPipeline:
         namer = FigureNamer(IMAGES_DIR, pdf_stem, page_number)
         subfig_labels = self._detect_subfig_labels(blocks)
 
-        figure_refs_found: Set[str] = set()
+        figure_refs_found: set[str] = set()
         for ref_match in re.finditer(
-            r'(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?|Table|Activity|Chart)\s*([0-9]+(?:\.[0-9]+)?)',
+            r"(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?|Table|Activity|Chart)\s*([0-9]+(?:\.[0-9]+)?)",
             full_page_text,
             re.IGNORECASE,
         ):
@@ -318,15 +313,15 @@ class DigitalPipeline:
 
         # Collect non-caption body text blocks to act as obstacles against bleed-over
         caption_rects = [cap["bbox"] for cap in captions]
-        body_obstacles: List[fitz.Rect] = []
+        body_obstacles: list[fitz.Rect] = []
         for b in blocks:
             if b[6] == 0:  # text block
                 b_rect = fitz.Rect(b[:4])
                 if len(b[4].strip()) > 80 and not any(b_rect.intersects(cr) for cr in caption_rects):
                     body_obstacles.append(b_rect)
 
-        saved_image_paths: List[str] = []
-        extracted_figures: List[Any] = []
+        saved_image_paths: list[str] = []
+        extracted_figures: list[Any] = []
 
         for cap in captions:
             c_id = cap["fig_id"]
@@ -368,7 +363,7 @@ class DigitalPipeline:
             )
 
             # Harvest internal text labels strictly inside the compound bbox
-            labels_inside: List[str] = []
+            labels_inside: list[str] = []
             for b in blocks:
                 if b[6] == 0:
                     b_rect = fitz.Rect(b[:4])
@@ -383,17 +378,17 @@ class DigitalPipeline:
             clean_caption_desc = cap["caption"]
 
             # Render complete high-DPI figure crop with dynamic padding and obstacle avoidance
-            full_crop_img = self.crop_page_region(
-                page, compound_bbox, is_meaningful_fn, obstacles=body_obstacles
-            )
+            full_crop_img = self.crop_page_region(page, compound_bbox, is_meaningful_fn, obstacles=body_obstacles)
             if full_crop_img:
                 out_path, out_filename = namer.next_path()
                 full_crop_img.save(str(out_path))
                 saved_image_paths.append(str(out_path))
 
                 source_type = (
-                    "vector_region" if fig_drawings and not fig_images
-                    else "embedded_image" if fig_images and not fig_drawings
+                    "vector_region"
+                    if fig_drawings and not fig_images
+                    else "embedded_image"
+                    if fig_images and not fig_drawings
                     else "mixed"
                 )
 
@@ -428,18 +423,42 @@ class DigitalPipeline:
                 h = compound_bbox.height
                 sub_a_tag = subfigs_in_cap[0][0]
                 sub_b_tag = subfigs_in_cap[1][0]
-                lbl_a = next((s for s in subfig_labels if s["label"] == sub_a_tag and abs(s["bbox"].y0 - compound_bbox.y1) <= 60), None)
-                lbl_b = next((s for s in subfig_labels if s["label"] == sub_b_tag and abs(s["bbox"].y0 - compound_bbox.y1) <= 60), None)
+                lbl_a = next(
+                    (
+                        s
+                        for s in subfig_labels
+                        if s["label"] == sub_a_tag and abs(s["bbox"].y0 - compound_bbox.y1) <= 60
+                    ),
+                    None,
+                )
+                lbl_b = next(
+                    (
+                        s
+                        for s in subfig_labels
+                        if s["label"] == sub_b_tag and abs(s["bbox"].y0 - compound_bbox.y1) <= 60
+                    ),
+                    None,
+                )
 
-                is_horizontal = bool((lbl_a and lbl_b and abs(lbl_a["bbox"].x0 - lbl_b["bbox"].x0) > 40) or (w > h * 1.2))
+                is_horizontal = bool(
+                    (lbl_a and lbl_b and abs(lbl_a["bbox"].x0 - lbl_b["bbox"].x0) > 40) or (w > h * 1.2)
+                )
 
                 for s_idx, (sub_tag, sub_desc) in enumerate(subfigs_in_cap[:2]):
                     if is_horizontal:
                         mid_x = (compound_bbox.x0 + compound_bbox.x1) / 2.0
-                        sub_box = fitz.Rect(compound_bbox.x0, compound_bbox.y0, mid_x + 5, compound_bbox.y1) if s_idx == 0 else fitz.Rect(mid_x - 5, compound_bbox.y0, compound_bbox.x1, compound_bbox.y1)
+                        sub_box = (
+                            fitz.Rect(compound_bbox.x0, compound_bbox.y0, mid_x + 5, compound_bbox.y1)
+                            if s_idx == 0
+                            else fitz.Rect(mid_x - 5, compound_bbox.y0, compound_bbox.x1, compound_bbox.y1)
+                        )
                     else:
                         mid_y = (compound_bbox.y0 + compound_bbox.y1) / 2.0
-                        sub_box = fitz.Rect(compound_bbox.x0, compound_bbox.y0, compound_bbox.x1, mid_y + 5) if s_idx == 0 else fitz.Rect(compound_bbox.x0, mid_y - 5, compound_bbox.x1, compound_bbox.y1)
+                        sub_box = (
+                            fitz.Rect(compound_bbox.x0, compound_bbox.y0, compound_bbox.x1, mid_y + 5)
+                            if s_idx == 0
+                            else fitz.Rect(compound_bbox.x0, mid_y - 5, compound_bbox.x1, compound_bbox.y1)
+                        )
 
                     sub_crop = self.crop_page_region(page, sub_box, is_meaningful_fn, obstacles=body_obstacles)
                     if sub_crop:
@@ -520,5 +539,5 @@ class DigitalPipeline:
             claimed_rects.append(r)
 
         figure_dicts = [f.to_dict() if hasattr(f, "to_dict") else f for f in extracted_figures]
-        sorted_refs = sorted(list(figure_refs_found))
+        sorted_refs = sorted(figure_refs_found)
         return saved_image_paths, figure_dicts, sorted_refs

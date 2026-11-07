@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import torch
 from PIL import Image
@@ -13,7 +13,7 @@ from src.layout.paths import resolve_image_path
 
 
 class PictureDetectionDataset(Dataset):
-    def __init__(self, records: List[Dict[str, Any]], processor: Any, manifest_dir):
+    def __init__(self, records: list[dict[str, Any]], processor: Any, manifest_dir):
         self.records = records
         self.processor = processor
         self.manifest_dir = manifest_dir
@@ -21,7 +21,7 @@ class PictureDetectionDataset(Dataset):
     def __len__(self) -> int:
         return len(self.records)
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         rec = self.records[idx]
         img_path = resolve_image_path(rec["image_path"], self.manifest_dir)
 
@@ -58,7 +58,7 @@ class PictureDetectionDataset(Dataset):
         return item
 
 
-def collate_batch(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+def collate_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
     out = {
         "input_ids": torch.stack([b["input_ids"] for b in batch]),
         "pixel_values": torch.stack([b["pixel_values"] for b in batch]),
@@ -77,7 +77,7 @@ def generate_detections(
     device: str,
     max_new_tokens: int = 128,
     num_beams: int = 2,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     model.eval()
     inputs = processor(text=TASK_PROMPT, images=image.convert("RGB"), return_tensors="pt")
     inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -92,9 +92,7 @@ def generate_detections(
         num_beams=num_beams,
     )
     gen_text = processor.batch_decode(gen_ids, skip_special_tokens=False)[0]
-    parsed = processor.post_process_generation(
-        gen_text, task=TASK_PROMPT, image_size=image.size
-    )
+    parsed = processor.post_process_generation(gen_text, task=TASK_PROMPT, image_size=image.size)
     od = parsed.get(TASK_PROMPT, {})
     return {
         "raw_text": gen_text,

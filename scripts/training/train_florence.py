@@ -7,7 +7,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import torch
 import yaml
@@ -16,6 +16,8 @@ from transformers import get_linear_schedule_with_warmup
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from PIL import Image
 
 from src.layout.bbox_utils import TARGET_CLASS, validate_bbox_xyxy
 from src.layout.dataset_schema import (
@@ -35,17 +37,17 @@ from src.layout.florence_model import (
 )
 from src.layout.florence_processor import PictureDetectionDataset, collate_batch, generate_detections
 from src.layout.metrics import compute_detection_metrics
-from src.layout.paths import FLORENCE_LAYOUT_DIR, MANIFEST_PATH, PROJECT_ROOT as ROOT, RUNS_DIR, resolve_image_path
+from src.layout.paths import MANIFEST_PATH, RUNS_DIR, resolve_image_path
+from src.layout.paths import PROJECT_ROOT as ROOT
 from src.layout.training_utils import TrainingLogger, create_run_dir
-from PIL import Image
 
 
-def load_config(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def load_config(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-def split_records(records: List[Dict]) -> tuple[List[Dict], List[Dict], List[Dict]]:
+def split_records(records: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     train, val, test = [], [], []
     for r in records:
         s = r.get("split", "train")
@@ -58,9 +60,7 @@ def split_records(records: List[Dict]) -> tuple[List[Dict], List[Dict], List[Dic
     return train, val, test
 
 
-def evaluate_generation(
-    model, processor, records, manifest_dir, device, max_samples=50
-) -> Dict[str, float]:
+def evaluate_generation(model, processor, records, manifest_dir, device, max_samples=50) -> dict[str, float]:
     all_gt, all_pred = [], []
     for rec in records[:max_samples]:
         pics = [a for a in rec.get("annotations", []) if a.get("category") == TARGET_CLASS]
@@ -76,7 +76,7 @@ def evaluate_generation(
     return compute_detection_metrics(all_gt, all_pred)
 
 
-def train_loop(cfg: Dict[str, Any], records: List[Dict], run_dir: Path) -> int:
+def train_loop(cfg: dict[str, Any], records: list[dict], run_dir: Path) -> int:
     manifest_path = ROOT / cfg["data"]["manifest"]
     manifest_dir = manifest_path.parent
 
@@ -101,7 +101,9 @@ def train_loop(cfg: Dict[str, Any], records: List[Dict], run_dir: Path) -> int:
     print(f"Trainable: {params['trainable']:,} | Frozen: {params['frozen']:,} ({params['trainable_pct']}%)")
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(trainable_params, lr=tcfg["learning_rate"], weight_decay=tcfg.get("weight_decay", 0.01))
+    optimizer = torch.optim.AdamW(
+        trainable_params, lr=tcfg["learning_rate"], weight_decay=tcfg.get("weight_decay", 0.01)
+    )
 
     batch_size = tcfg["batch_size"]
     grad_accum = tcfg["gradient_accumulation"]
@@ -109,11 +111,17 @@ def train_loop(cfg: Dict[str, Any], records: List[Dict], run_dir: Path) -> int:
 
     train_loader = DataLoader(
         PictureDetectionDataset(train_recs, processor, manifest_dir),
-        batch_size=batch_size, shuffle=True, collate_fn=collate_batch, num_workers=0,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_batch,
+        num_workers=0,
     )
     val_loader = DataLoader(
         PictureDetectionDataset(val_recs, processor, manifest_dir),
-        batch_size=batch_size, shuffle=False, collate_fn=collate_batch, num_workers=0,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_batch,
+        num_workers=0,
     )
 
     steps_per_epoch = len(train_loader)
@@ -206,14 +214,15 @@ def train_loop(cfg: Dict[str, Any], records: List[Dict], run_dir: Path) -> int:
 
         # Generation-based eval
         metrics = evaluate_generation(
-            model, processor, val_recs, manifest_dir, device,
+            model,
+            processor,
+            val_recs,
+            manifest_dir,
+            device,
             max_samples=cfg["evaluation"].get("max_val_samples", 50),
         )
-        print(f"  Gen metrics: mean_iou={metrics.get('mean_iou', 0):.4f} "
-              f"recall@50={metrics.get('recall_ap50', 0):.3f}")
-        (run_dir / f"metrics_epoch_{epoch:03d}.json").write_text(
-            json.dumps(metrics, indent=2), encoding="utf-8"
-        )
+        print(f"  Gen metrics: mean_iou={metrics.get('mean_iou', 0):.4f} recall@50={metrics.get('recall_ap50', 0):.3f}")
+        (run_dir / f"metrics_epoch_{epoch:03d}.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
     logger.save()
     print(f"\nTraining complete. Best val loss: {best_val:.4f}")

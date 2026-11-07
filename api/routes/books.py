@@ -55,9 +55,7 @@ def upload_book(
         raise ApiError(422, "TOO_MANY_PAGES", f"PDFs are limited to {settings.max_pages} pages (this one has {pages}).")
     filename = (file.filename or "document.pdf")[:255]
 
-    existing = session.exec(
-        select(Book).where(Book.owner_id == principal.owner_id, Book.sha256 == sha)
-    ).first()
+    existing = session.exec(select(Book).where(Book.owner_id == principal.owner_id, Book.sha256 == sha)).first()
     if existing is not None and existing.status != "failed":
         job = session.exec(select(Job).where(Job.book_id == existing.id).order_by(Job.created_at.desc())).first()  # type: ignore[attr-defined]
         if job is not None:
@@ -81,9 +79,7 @@ def upload_book(
 
 
 @router.get("/books", response_model=BookList, responses=ERRORS)
-def list_books(
-    principal: Principal = Depends(require_principal), session: Session = Depends(get_session)
-) -> BookList:
+def list_books(principal: Principal = Depends(require_principal), session: Session = Depends(get_session)) -> BookList:
     books = session.exec(
         select(Book).where(Book.owner_id == principal.owner_id).order_by(Book.created_at.desc())  # type: ignore[attr-defined]
     ).all()
@@ -99,9 +95,7 @@ def get_book(
 ) -> BookDetail:
     book = _owned_book(session, book_id, principal.owner_id)
     if book.status != "ready":
-        return BookDetail(
-            **_summary(book).model_dump(), digital_pages=0, scanned_pages=0, file_url=None, pages=[]
-        )
+        return BookDetail(**_summary(book).model_dump(), digital_pages=0, scanned_pages=0, file_url=None, pages=[])
     return book_detail(settings, book, book_cache.get(settings, book.sha256))
 
 
@@ -124,7 +118,9 @@ def ask_question(
     result = answer_question(
         body.question, {**data, "book_id": book.sha256, "filename": book.filename}, api_key=settings.gemini_api_key
     )
-    figures_by_ref = {(int(f.get("page_number") or 0), str(f.get("figure_id"))): k for k, f in figure_index(data).items()}
+    figures_by_ref = {
+        (int(f.get("page_number") or 0), str(f.get("figure_id"))): k for k, f in figure_index(data).items()
+    }
     index = figure_index(data)
     figures = []
     for fig in result.get("figures", []):

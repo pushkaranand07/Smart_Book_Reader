@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import platform
 import sys
-from typing import Any, Dict
+from typing import Any
 
 
-def collect_environment() -> Dict[str, Any]:
-    info: Dict[str, Any] = {
+def collect_environment() -> dict[str, Any]:
+    info: dict[str, Any] = {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
     }
@@ -33,7 +33,7 @@ def collect_environment() -> Dict[str, Any]:
     return info
 
 
-def print_environment() -> Dict[str, Any]:
+def print_environment() -> dict[str, Any]:
     info = collect_environment()
     print("ENVIRONMENT")
     print("=" * 40)

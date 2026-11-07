@@ -27,12 +27,13 @@ import random
 import sys
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.layout.paths import PROJECT_ROOT as ROOT, TRAINING_DATA_DIR, IMAGES_DIR, MANIFEST_PATH
+from src.layout.paths import PROJECT_ROOT as ROOT
+from src.layout.paths import TRAINING_DATA_DIR
 
 # DocLayNet COCO category ids
 CATEGORY_ID_TO_NAME = {
@@ -52,11 +53,11 @@ PICTURE_ID = 7
 
 
 def coco_xywh_to_xyxy(
-    bbox: List[float],
+    bbox: list[float],
     width: int,
     height: int,
     bbox_format: str = "auto",
-) -> Optional[List[float]]:
+) -> list[float] | None:
     """Convert a box to clamped xyxy pixels.
 
     DocLayNet-v1.1 often stores absolute xyxy; classic COCO uses xywh.
@@ -94,7 +95,7 @@ def coco_xywh_to_xyxy(
     return [x1, y1, x2, y2]
 
 
-def _item_metadata(item: Dict[str, Any]) -> Dict[str, Any]:
+def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
     meta = item.get("metadata")
     if isinstance(meta, dict):
         return meta
@@ -109,8 +110,9 @@ def _item_metadata(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _to_pil_rgb(image_obj: Any):
-    from PIL import Image
     import io
+
+    from PIL import Image
 
     if image_obj is None:
         return None
@@ -138,16 +140,16 @@ def _is_picture_category(cid: Any, label: Any = "") -> bool:
     return cid_i in (PICTURE_ID, PICTURE_ID - 1)
 
 
-def extract_picture_boxes(item: Dict[str, Any], width: int, height: int) -> List[Dict[str, Any]]:
+def extract_picture_boxes(item: dict[str, Any], width: int, height: int) -> list[dict[str, Any]]:
     """Extract Picture annotations from various DocLayNet HF schemas."""
-    pictures: List[Dict[str, Any]] = []
+    pictures: list[dict[str, Any]] = []
 
     # Schema A: parallel category_id + bboxes lists (DocLayNet-v1.1 style)
     if "category_id" in item and "bboxes" in item:
         cats = item["category_id"]
         boxes = item["bboxes"]
         if isinstance(cats, list) and isinstance(boxes, list):
-            for cid, bbox in zip(cats, boxes):
+            for cid, bbox in zip(cats, boxes, strict=False):
                 if not _is_picture_category(cid):
                     continue
                 xyxy = coco_xywh_to_xyxy(list(bbox), width, height, bbox_format="xyxy")
@@ -160,7 +162,7 @@ def extract_picture_boxes(item: Dict[str, Any], width: int, height: int) -> List
     categories = item.get("categories")
     block_boxes = item.get("bboxes_block")
     if isinstance(categories, list) and isinstance(block_boxes, list):
-        for category, bbox in zip(categories, block_boxes):
+        for category, bbox in zip(categories, block_boxes, strict=False):
             if not _is_picture_category(None, category):
                 continue
             xyxy = coco_xywh_to_xyxy(list(bbox), width, height, bbox_format="xywh")
@@ -213,7 +215,7 @@ def extract_picture_boxes(item: Dict[str, Any], width: int, height: int) -> List
     return pictures
 
 
-def _dedupe_annotations(annotations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _dedupe_annotations(annotations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen = set()
     unique = []
     for annotation in annotations:
@@ -342,8 +344,7 @@ def load_doclaynet_split(split: str, pilot: bool = False):
         print(f"  Parquet fallback failed: {e}")
 
     raise RuntimeError(
-        f"Could not load DocLayNet parquet. Last error: {last_err}\n"
-        "Tip: pip install -U datasets huggingface_hub"
+        f"Could not load DocLayNet parquet. Last error: {last_err}\nTip: pip install -U datasets huggingface_hub"
     )
 
 
@@ -354,15 +355,15 @@ def collect_split(
     seed: int = 42,
     pilot: bool = False,
     include_negative: bool = False,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     page_kind = "pages" if include_negative else "Picture pages"
     print(f"\n=== Collecting split={split} (max {page_kind}={max_samples}) ===")
     ds, repo = load_doclaynet_split(split, pilot=pilot)
     print(f"Source: {repo}")
 
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     scanned = 0
-    rng = random.Random(seed + hash(split) % 10000)
+    random.Random(seed + hash(split) % 10000)
 
     for item in ds:
         scanned += 1
@@ -428,7 +429,7 @@ def collect_split(
     return records
 
 
-def _source_id_for_item(item: Dict[str, Any], meta: Dict[str, Any], fallback: str) -> str:
+def _source_id_for_item(item: dict[str, Any], meta: dict[str, Any], fallback: str) -> str:
     return str(
         meta.get("doc_name")
         or item.get("doc_name")
@@ -443,12 +444,12 @@ def _source_id_for_item(item: Dict[str, Any], meta: Dict[str, Any], fallback: st
 
 
 def _save_record(
-    item: Dict[str, Any],
+    item: dict[str, Any],
     split: str,
     idx: int,
     images_dir: Path,
     include_negative: bool,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     pil_img = _to_pil_rgb(item.get("image"))
     if pil_img is None:
         return None
@@ -488,18 +489,16 @@ def collect_custom_train_val(
     images_dir: Path,
     seed: int = 42,
     include_negative: bool = False,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Create document-level train/val quotas from one official train stream."""
-    print(
-        f"\n=== Collecting custom train/val split (train={max_train}, val={max_val}) ==="
-    )
+    print(f"\n=== Collecting custom train/val split (train={max_train}, val={max_val}) ===")
     ds, repo = load_doclaynet_split("train")
     print(f"Source: {repo}")
-    train_records: List[Dict[str, Any]] = []
-    val_records: List[Dict[str, Any]] = []
+    train_records: list[dict[str, Any]] = []
+    val_records: list[dict[str, Any]] = []
     scanned = 0
     val_bucket_count = 30
-    source_destinations: Dict[str, str] = {}
+    source_destinations: dict[str, str] = {}
 
     for item in ds:
         scanned += 1
@@ -530,15 +529,11 @@ def collect_custom_train_val(
         target.append(record)
         if len(target) % 1000 == 0:
             print(
-                f"  train={len(train_records)}/{max_train}, "
-                f"val={len(val_records)}/{max_val} (scanned {scanned})",
+                f"  train={len(train_records)}/{max_train}, val={len(val_records)}/{max_val} (scanned {scanned})",
                 flush=True,
             )
 
-    print(
-        f"Custom split: train={len(train_records)}, val={len(val_records)} "
-        f"(scanned {scanned})"
-    )
+    print(f"Custom split: train={len(train_records)}, val={len(val_records)} (scanned {scanned})")
     return train_records, val_records
 
 
@@ -575,15 +570,18 @@ def main() -> int:
 
     if args.clear and out_dir.exists():
         import shutil
+
         print(f"Clearing {out_dir} ...")
         shutil.rmtree(out_dir)
 
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    all_records: List[Dict[str, Any]] = []
+    all_records: list[dict[str, Any]] = []
     if args.custom_split and not args.pilot:
         train_records, val_records = collect_custom_train_val(
-            args.max_train, args.max_val, images_dir,
+            args.max_train,
+            args.max_val,
+            images_dir,
             include_negative=args.include_negative,
         )
         if len(train_records) < args.max_train or len(val_records) < args.max_val:
@@ -594,25 +592,37 @@ def main() -> int:
         all_records += train_records + val_records
     else:
         all_records += collect_split(
-            "train", args.max_train, images_dir,
-            pilot=args.pilot, include_negative=args.include_negative,
+            "train",
+            args.max_train,
+            images_dir,
+            pilot=args.pilot,
+            include_negative=args.include_negative,
         )
         # HF uses 'val' or 'validation'
         try:
             all_records += collect_split(
-                "val", args.max_val, images_dir,
-                pilot=args.pilot, include_negative=args.include_negative,
+                "val",
+                args.max_val,
+                images_dir,
+                pilot=args.pilot,
+                include_negative=args.include_negative,
             )
         except Exception:
             all_records += collect_split(
-                "validation", args.max_val, images_dir,
-                pilot=args.pilot, include_negative=args.include_negative,
+                "validation",
+                args.max_val,
+                images_dir,
+                pilot=args.pilot,
+                include_negative=args.include_negative,
             )
 
     if args.max_test > 0:
         all_records += collect_split(
-            "test", args.max_test, images_dir,
-            pilot=args.pilot, include_negative=args.include_negative,
+            "test",
+            args.max_test,
+            images_dir,
+            pilot=args.pilot,
+            include_negative=args.include_negative,
         )
 
     with manifest_path.open("w", encoding="utf-8") as f:
@@ -620,6 +630,7 @@ def main() -> int:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     from collections import Counter
+
     print("\n" + "=" * 60)
     print("DOCLAYNET BUILD COMPLETE")
     print("=" * 60)

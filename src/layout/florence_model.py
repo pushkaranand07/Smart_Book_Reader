@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import torch
 from PIL import Image
@@ -11,12 +11,12 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 
 from src.layout.bbox_utils import TASK_PROMPT
 from src.layout.environment import collect_environment
-from src.layout.paths import FLORENCE_LAYOUT_DIR, MODEL_DIR
+from src.layout.paths import FLORENCE_LAYOUT_DIR
 
 BASE_MODEL_ID = "microsoft/Florence-2-base"
 
 
-def discover_lora_targets(model: Any) -> List[str]:
+def discover_lora_targets(model: Any) -> list[str]:
     """Find attention projection modules in Florence language model."""
     preferred = ["q_proj", "k_proj", "v_proj", "o_proj", "out_proj"]
     found = set()
@@ -74,7 +74,7 @@ def _patch_florence2_generation_compatibility() -> None:
             **kwargs,
         ):
             if past_key_values is not None:
-                return original(
+                return original(  # noqa: B023 - bound per patched class inside the loop
                     self,
                     decoder_input_ids=decoder_input_ids,
                     past_key_values=past_key_values,
@@ -104,7 +104,7 @@ def _patch_florence2_generation_compatibility() -> None:
         cls._smart_book_reader_generation_patch = True
 
 
-def load_base_model(model_id: str = BASE_MODEL_ID, device: str | None = None) -> Tuple[Any, str]:
+def load_base_model(model_id: str = BASE_MODEL_ID, device: str | None = None) -> tuple[Any, str]:
     from transformers import AutoConfig
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -132,10 +132,11 @@ def attach_lora(
     r: int = 16,
     lora_alpha: int = 32,
     lora_dropout: float = 0.05,
-    target_modules: List[str] | None = None,
+    target_modules: list[str] | None = None,
 ) -> Any:
-    from peft import LoraConfig, get_peft_model
     import inspect
+
+    from peft import LoraConfig, get_peft_model
 
     if target_modules is None:
         target_modules = discover_lora_targets(model)
@@ -167,20 +168,21 @@ def attach_lora(
 def load_trained_model(
     adapter_dir: Path | str | None = None,
     base_model_id: str = BASE_MODEL_ID,
-) -> Tuple[Any, Any, str]:
+) -> tuple[Any, Any, str]:
     adapter_dir = Path(adapter_dir or FLORENCE_LAYOUT_DIR / "best")
     processor = load_processor(base_model_id)
     model, device = load_base_model(base_model_id, None)
 
     if adapter_dir.is_dir() and (adapter_dir / "adapter_model.safetensors").exists():
         from peft import PeftModel
+
         model = PeftModel.from_pretrained(model, str(adapter_dir))
 
     model.eval()
     return model, processor, device
 
 
-def count_parameters(model: Any) -> Dict[str, int]:
+def count_parameters(model: Any) -> dict[str, int]:
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
     return {
@@ -194,8 +196,8 @@ def count_parameters(model: Any) -> Dict[str, int]:
 def run_preflight(
     model_id: str = BASE_MODEL_ID,
     sample_image: Image.Image | None = None,
-) -> Dict[str, Any]:
-    result: Dict[str, Any] = {"status": "FAIL", "environment": collect_environment()}
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"status": "FAIL", "environment": collect_environment()}
 
     try:
         processor = load_processor(model_id)
@@ -226,9 +228,7 @@ def run_preflight(
             )
 
         gen_text = processor.batch_decode(gen_ids, skip_special_tokens=False)[0]
-        parsed = processor.post_process_generation(
-            gen_text, task=TASK_PROMPT, image_size=sample_image.size
-        )
+        parsed = processor.post_process_generation(gen_text, task=TASK_PROMPT, image_size=sample_image.size)
         result["generation"] = "OK"
         result["parsing"] = "OK"
         result["sample_output_keys"] = list(parsed.keys())
@@ -239,7 +239,7 @@ def run_preflight(
     return result
 
 
-def print_preflight(result: Dict[str, Any]) -> None:
+def print_preflight(result: dict[str, Any]) -> None:
     print("MODEL PREFLIGHT")
     print("=" * 40)
     for k in ("processor", "model", "device", "generation", "parsing", "status"):

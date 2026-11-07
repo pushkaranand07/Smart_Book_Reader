@@ -1,0 +1,51 @@
+[project]
+name = "smart-book-reader"
+version = "2.0.0"
+description = "Document intelligence for textbooks and papers: extraction, OCR, figures and grounded QA."
+requires-python = ">=3.13"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+extend-exclude = ["frontend", "data", "model", ".claude", "docs/progress"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "PIE", "RUF"]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # ambiguous unicode: textbooks legitimately contain en dashes, arrows, etc.
+    "SIM905",                      # a split string is more readable for word lists
+    "SIM105",                      # contextlib.suppress is not clearer than try/except here
+    "B008",                        # FastAPI dependency injection uses calls in defaults by design
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]
+"scripts/**" = ["E402", "E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.13"
+files = ["api", "src/qa", "src/qa_engine.py", "src/captions.py", "src/ocr_engine.py", "src/storage.py"]
+strict = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# Legacy pipeline modules imported by the checked packages; typed progressively.
+module = ["src.pdf_processor", "src.digital_pipeline", "src.scanned_pipeline", "src.normalized_document", "src.layout.*", "src.florence_detector"]
+follow_imports = "skip"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["api", "src/qa"]
+omit = ["api/worker.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

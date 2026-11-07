@@ -39,8 +39,10 @@ def _normalized_pages_for_retrieval(book_data: dict[str, Any]) -> list[dict[str,
     if isinstance(normalized_doc, dict):
         pages: list[dict[str, Any]] = []
         for page in normalized_doc.get("pages", []) or []:
-            page_text = page.get("raw_text") or page.get("text") or " ".join(
-                caption.get("text", "") for caption in page.get("captions", [])
+            page_text = (
+                page.get("raw_text")
+                or page.get("text")
+                or " ".join(caption.get("text", "") for caption in page.get("captions", []))
             )
             pages.append(
                 {
@@ -127,9 +129,9 @@ def _visual_fallbacks(
     return selected_figures
 
 
-def _select_figures(query: str, pages: list[dict[str, Any]], evidence_pages: list[dict[str, Any]]) -> tuple[
-    list[dict[str, Any]], float, bool
-]:
+def _select_figures(
+    query: str, pages: list[dict[str, Any]], evidence_pages: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], float, bool]:
     explicit = _explicit_reference_match(query, pages)
     if explicit:
         return explicit, 100.0, False
@@ -166,7 +168,9 @@ def _book_key(book_data: dict[str, Any]) -> str:
     explicit = book_data.get("book_id") or book_data.get("source_file_hash")
     if explicit:
         return str(explicit)
-    digest = hash(json.dumps(book_data.get("normalized_document") or book_data.get("pages"), sort_keys=True, default=str))
+    digest = hash(
+        json.dumps(book_data.get("normalized_document") or book_data.get("pages"), sort_keys=True, default=str)
+    )
     return f"anon:{digest}"
 
 
@@ -213,9 +217,7 @@ def answer_question(
 
     page_by_number = {p.get("page_number"): p for p in pages}
     cited_pages = list(dict.fromkeys(c.page_number for c in result.citations))
-    evidence_pages = [
-        {**page_by_number[n], "score": None} for n in cited_pages if n in page_by_number
-    ]
+    evidence_pages = [{**page_by_number[n], "score": None} for n in cited_pages if n in page_by_number]
     figures, margin, ambiguous = _select_figures(query, pages, evidence_pages)
 
     answer_text = _clean_answer_format(_remove_page_citations(result.answer))

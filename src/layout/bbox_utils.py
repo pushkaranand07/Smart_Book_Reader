@@ -10,7 +10,7 @@ Verified against microsoft/Florence-2-base processing_florence2.py:
 from __future__ import annotations
 
 import math
-from typing import List, Sequence, Tuple
+from collections.abc import Sequence
 
 LOC_BINS = 1000
 TASK_PROMPT = "<OD>"
@@ -21,7 +21,7 @@ class BBoxError(ValueError):
     pass
 
 
-def validate_bbox_xyxy(bbox: Sequence[float], width: int, height: int) -> Tuple[float, float, float, float]:
+def validate_bbox_xyxy(bbox: Sequence[float], width: int, height: int) -> tuple[float, float, float, float]:
     if len(bbox) != 4:
         raise BBoxError(f"bbox must have 4 values, got {len(bbox)}")
 
@@ -81,11 +81,7 @@ def compute_iou(box_a: Sequence[float], box_b: Sequence[float]) -> float:
     x1 = min(box_a[2], box_b[2])
     y1 = min(box_a[3], box_b[3])
     inter = max(0.0, x1 - x0) * max(0.0, y1 - y0)
-    union = (
-        (box_a[2] - box_a[0]) * (box_a[3] - box_a[1])
-        + (box_b[2] - box_b[0]) * (box_b[3] - box_b[1])
-        - inter
-    )
+    union = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1]) + (box_b[2] - box_b[0]) * (box_b[3] - box_b[1]) - inter
     return inter / union if union > 0 else 0.0
 
 

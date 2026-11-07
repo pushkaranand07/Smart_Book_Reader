@@ -26,9 +26,11 @@ _BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 _STOP = frozenset(
-    "a an the of and or to in on for is are was were be been by with as at from that this these those it its "
-    "what which who whom how why when where do does did can could should would will shall may might me you your "
-    "we our they their them he she his her i give explain describe define tell about".split()
+    (
+        "a an the of and or to in on for is are was were be been by with as at from that this these those it its "
+        "what which who whom how why when where do does did can could should would will shall may might me you "
+        "your we our they their them he she his her i give explain describe define tell about"
+    ).split()
 )
 
 

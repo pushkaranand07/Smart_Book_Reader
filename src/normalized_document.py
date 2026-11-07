@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def make_canonical_id(document_id: str, page_number: int, kind: str, index: int) -> str:
     return f"doc:{document_id}:page:{page_number}:{kind}:{index}"
 
 
-def _figure_reference_from_legacy(raw_figure: Dict[str, Any]) -> Optional[str]:
+def _figure_reference_from_legacy(raw_figure: dict[str, Any]) -> str | None:
     for candidate in [
         raw_figure.get("figure_id"),
         raw_figure.get("figure_label"),
@@ -24,7 +24,7 @@ def _figure_reference_from_legacy(raw_figure: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _is_valid_legacy_figure(raw_figure: Dict[str, Any]) -> bool:
+def _is_valid_legacy_figure(raw_figure: dict[str, Any]) -> bool:
     if not isinstance(raw_figure, dict):
         return False
 
@@ -49,7 +49,7 @@ def _is_valid_legacy_figure(raw_figure: Dict[str, Any]) -> bool:
     return bool(label.strip()) or bool(caption.strip())
 
 
-def parse_explicit_reference(text: str) -> Optional[str]:
+def parse_explicit_reference(text: str) -> str | None:
     if not text:
         return None
 
@@ -74,7 +74,7 @@ def _looks_like_activity_label(raw_label: str, raw_caption: str) -> bool:
     return not re.search(r"\b(?:figure|fig\.?|table)\s+\d", combined, flags=re.IGNORECASE)
 
 
-def _normalize_legacy_figure_id(raw_figure: Dict[str, Any]) -> Optional[str]:
+def _normalize_legacy_figure_id(raw_figure: dict[str, Any]) -> str | None:
     raw_id = str(raw_figure.get("figure_id") or "").strip()
     raw_label = str(raw_figure.get("figure_label") or "").strip()
     raw_caption = str(raw_figure.get("caption") or "").strip()
@@ -117,12 +117,12 @@ class Caption:
     id: str
     page_id: str
     text: str
-    bbox: Tuple[float, float, float, float]
-    attached_to: Optional[str] = None
-    explicit_reference: Optional[str] = None
-    section_id: Optional[str] = None
+    bbox: tuple[float, float, float, float]
+    attached_to: str | None = None
+    explicit_reference: str | None = None
+    section_id: str | None = None
     confidence: float = 0.0
-    provenance: Dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -130,16 +130,16 @@ class Figure:
     id: str
     page_id: str
     figure_type: str
-    bbox: Tuple[float, float, float, float]
-    caption_id: Optional[str] = None
-    image_source: Optional[str] = None
-    extracted_text: Optional[str] = None
-    labels_inside: List[str] = field(default_factory=list)
-    surrounding_context: Optional[str] = None
-    section_id: Optional[str] = None
+    bbox: tuple[float, float, float, float]
+    caption_id: str | None = None
+    image_source: str | None = None
+    extracted_text: str | None = None
+    labels_inside: list[str] = field(default_factory=list)
+    surrounding_context: str | None = None
+    section_id: str | None = None
     reading_order_index: int = 0
     confidence: float = 0.0
-    provenance: Dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -149,7 +149,7 @@ class Relationship:
     target_id: str
     relation_type: str
     confidence: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -158,20 +158,20 @@ class Page:
     document_id: str
     page_number: int
     page_type: str
-    width: Optional[float] = None
-    height: Optional[float] = None
+    width: float | None = None
+    height: float | None = None
     raw_text: str = ""
     status: str = "ok"
-    errors: List[Dict[str, str]] = field(default_factory=list)
-    text_blocks: List[Dict[str, Any]] = field(default_factory=list)
-    figures: List[Figure] = field(default_factory=list)
-    tables: List[Dict[str, Any]] = field(default_factory=list)
-    formulas: List[Dict[str, Any]] = field(default_factory=list)
-    captions: List[Caption] = field(default_factory=list)
-    sections: List[Dict[str, Any]] = field(default_factory=list)
-    reading_order: List[str] = field(default_factory=list)
-    provenance: Dict[str, Any] = field(default_factory=dict)
-    relationships: List[Relationship] = field(default_factory=list)
+    errors: list[dict[str, str]] = field(default_factory=list)
+    text_blocks: list[dict[str, Any]] = field(default_factory=list)
+    figures: list[Figure] = field(default_factory=list)
+    tables: list[dict[str, Any]] = field(default_factory=list)
+    formulas: list[dict[str, Any]] = field(default_factory=list)
+    captions: list[Caption] = field(default_factory=list)
+    sections: list[dict[str, Any]] = field(default_factory=list)
+    reading_order: list[str] = field(default_factory=list)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    relationships: list[Relationship] = field(default_factory=list)
 
 
 @dataclass
@@ -179,12 +179,12 @@ class NormalizedDocument:
     id: str
     source_path: str
     filename: str
-    pages: List[Page]
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    provenance: Dict[str, Any] = field(default_factory=dict)
+    pages: list[Page]
+    metadata: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
-def infer_figure_type(raw_figure: Dict[str, Any]) -> str:
+def infer_figure_type(raw_figure: dict[str, Any]) -> str:
     text = " ".join(
         [
             str(raw_figure.get("figure_label") or ""),
@@ -200,7 +200,7 @@ def infer_figure_type(raw_figure: Dict[str, Any]) -> str:
     return "figure"
 
 
-def normalize_legacy_page_result(document: NormalizedDocument, page_result: Dict[str, Any]) -> Page:
+def normalize_legacy_page_result(document: NormalizedDocument, page_result: dict[str, Any]) -> Page:
     page_number = int(page_result.get("page_number", 1))
     page_id = f"doc:{document.id}:page:{page_number}"
 
@@ -219,7 +219,7 @@ def normalize_legacy_page_result(document: NormalizedDocument, page_result: Dict
         },
     )
 
-    deduped_figures: Dict[str, Dict[str, Any]] = {}
+    deduped_figures: dict[str, dict[str, Any]] = {}
     for raw_fig in page_result.get("figures", []) or []:
         if not isinstance(raw_fig, dict):
             continue
@@ -231,10 +231,18 @@ def normalize_legacy_page_result(document: NormalizedDocument, page_result: Dict
             continue
 
         merged = deduped_figures[normalized_fig_id]
-        for field in ["caption", "figure_label", "description", "image_path", "context", "surrounding_context", "source_type"]:
-            new_value = raw_fig.get(field)
-            if new_value and not merged.get(field):
-                merged[field] = new_value
+        for field_name in [
+            "caption",
+            "figure_label",
+            "description",
+            "image_path",
+            "context",
+            "surrounding_context",
+            "source_type",
+        ]:
+            new_value = raw_fig.get(field_name)
+            if new_value and not merged.get(field_name):
+                merged[field_name] = new_value
 
         existing_labels = list(merged.get("labels_inside", []) or [])
         for label in list(raw_fig.get("labels_inside", []) or []):
@@ -258,7 +266,11 @@ def normalize_legacy_page_result(document: NormalizedDocument, page_result: Dict
             continue
 
         fig_id = make_canonical_id(document.id, page_number, "figure", idx)
-        explicit_reference = parse_explicit_reference(raw_label) or parse_explicit_reference(raw_caption) or parse_explicit_reference(str(raw_fig.get("surrounding_context") or ""))
+        explicit_reference = (
+            parse_explicit_reference(raw_label)
+            or parse_explicit_reference(raw_caption)
+            or parse_explicit_reference(str(raw_fig.get("surrounding_context") or ""))
+        )
         figure = Figure(
             id=fig_id,
             page_id=page_id,
@@ -319,11 +331,7 @@ def normalize_legacy_page_result(document: NormalizedDocument, page_result: Dict
                 )
             )
 
-    existing_references = {
-        caption.explicit_reference
-        for caption in page.captions
-        if caption.explicit_reference
-    }
+    existing_references = {caption.explicit_reference for caption in page.captions if caption.explicit_reference}
     for ref_index, reference in enumerate(page_result.get("figure_references", []) or [], start=1):
         explicit_reference = parse_explicit_reference(f"Figure {reference}") or str(reference).strip()
         if not explicit_reference or explicit_reference in existing_references:
@@ -349,9 +357,9 @@ def normalize_legacy_document(
     document_id: str,
     source_path: str,
     filename: str,
-    legacy_pages: List[Dict[str, Any]],
-    metadata: Optional[Dict[str, Any]] = None,
-    provenance: Optional[Dict[str, Any]] = None,
+    legacy_pages: list[dict[str, Any]],
+    metadata: dict[str, Any] | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> NormalizedDocument:
     """Convert legacy PageResult-style data into the internal normalized graph model."""
     document = NormalizedDocument(
@@ -371,7 +379,7 @@ def normalize_legacy_document(
     return document
 
 
-def normalized_document_to_dict(document: NormalizedDocument) -> Dict[str, Any]:
+def normalized_document_to_dict(document: NormalizedDocument) -> dict[str, Any]:
     """Serialize a normalized document into a JSON-friendly dict for persistence.
 
     The downstream QA layer expects figure entries to expose the stable keys used by the app:
@@ -387,7 +395,9 @@ def normalized_document_to_dict(document: NormalizedDocument) -> Dict[str, Any]:
         seen_ids = set()
         for fig in page.figures:
             caption = next((c.text for c in page.captions if c.attached_to == fig.id), None)
-            explicit_ref = next((c.explicit_reference for c in page.captions if c.attached_to == fig.id and c.explicit_reference), None)
+            explicit_ref = next(
+                (c.explicit_reference for c in page.captions if c.attached_to == fig.id and c.explicit_reference), None
+            )
             fig_id = explicit_ref or fig.id.split(":figure:")[-1] if fig.id.startswith("doc:") else fig.id
             fig_label = f"Figure {explicit_ref}" if explicit_ref else (fig.extracted_text or caption or fig.id)
             if fig_id in seen_ids:
@@ -410,11 +420,7 @@ def normalized_document_to_dict(document: NormalizedDocument) -> Dict[str, Any]:
                 }
             )
         page_dict["figures"] = figures_out
-        page_dict["images"] = [
-            figure["image_path"]
-            for figure in figures_out
-            if figure.get("image_path")
-        ]
+        page_dict["images"] = [figure["image_path"] for figure in figures_out if figure.get("image_path")]
         serialized_pages.append(page_dict)
     return {
         "id": document.id,

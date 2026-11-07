@@ -6,11 +6,11 @@ Uses the canonical training pipeline in src/layout/ for inference.
 
 from __future__ import annotations
 
-import threading
 import logging
 import os
+import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from PIL import Image
 
@@ -76,18 +76,18 @@ class FlorenceVisualDetector:
         pil_image: Image.Image,
         min_box_area: int = 4000,
         max_page_coverage: float = 0.55,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if not self.is_available:
             return []
 
         img_w, img_h = pil_image.size
         page_area = img_w * img_h
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
 
         try:
             with _florence_lock:
                 det = generate_detections(_florence_model, _florence_processor, pil_image, _florence_device)
-            for bbox, label in zip(det["bboxes"], det.get("labels") or ["Picture"] * len(det["bboxes"])):
+            for bbox, label in zip(det["bboxes"], det.get("labels") or ["Picture"] * len(det["bboxes"]), strict=False):
                 clean = (label or "Picture").strip()
                 if clean.lower() not in ("picture", "diagram", "figure", "image", "chart", "graph"):
                     continue
@@ -96,13 +96,15 @@ class FlorenceVisualDetector:
                 area = w * h
                 if area < min_box_area or area > page_area * max_page_coverage:
                     continue
-                results.append({
-                    "label": clean,
-                    "confidence": None,
-                    "bbox": (x0, y0, x1, y1),
-                    "width": w,
-                    "height": h,
-                })
+                results.append(
+                    {
+                        "label": clean,
+                        "confidence": None,
+                        "bbox": (x0, y0, x1, y1),
+                        "width": w,
+                        "height": h,
+                    }
+                )
         except (RuntimeError, ValueError, IndexError, KeyError) as exc:
             logger.error("Florence visual detection failed: %s", exc)
 
@@ -122,17 +124,17 @@ class FlorenceVisualDetector:
             logger.error("Florence image captioning failed: %s", exc)
             return ""
 
-    def detect_and_caption(self, pil_image: Image.Image) -> Dict[str, Any]:
+    def detect_and_caption(self, pil_image: Image.Image) -> dict[str, Any]:
         return {
             "caption": self.caption_image(pil_image),
             "regions": self.detect_visual_boxes(pil_image),
         }
 
 
-_detector_instance: Optional[FlorenceVisualDetector] = None
+_detector_instance: FlorenceVisualDetector | None = None
 
 
-def get_florence_detector() -> Tuple[bool, Optional[FlorenceVisualDetector], str]:
+def get_florence_detector() -> tuple[bool, FlorenceVisualDetector | None, str]:
     global _detector_instance
     if _detector_instance is None:
         _detector_instance = FlorenceVisualDetector()

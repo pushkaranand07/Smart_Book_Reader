@@ -109,7 +109,7 @@ def nearest_caption(
 ) -> CaptionMatch | None:
     """Pick the caption directly above or below the figure in the same column, within `max_gap`."""
     best: tuple[float, CaptionMatch] | None = None
-    x0, y0, x1, y1 = figure_bbox
+    _x0, y0, _x1, y1 = figure_bbox
     for bbox, caption in candidates:
         if horizontal_overlap(figure_bbox, bbox) < min_overlap:
             continue
