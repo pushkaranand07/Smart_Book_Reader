@@ -27,6 +27,7 @@ export function Citations({ citations, figureLabel, onCitationSelect, onFigureSe
             <button
               type="button"
               className="citation__button"
+              data-page-number={citation.page_number}
               onClick={() => {
                 onCitationSelect(citation);
               }}
