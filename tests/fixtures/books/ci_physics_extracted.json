@@ -1,0 +1,56 @@
+{
+ "filename": "ci_physics.pdf",
+ "normalized_document": {
+  "filename": "ci_physics.pdf",
+  "pages": [
+   {
+    "page_number": 1,
+    "page_type": "Digital",
+    "raw_text": "Energy and Simple Machines\n1.1 What is Energy?\nEnergy is the capacity of a body to do work. Energy is measured in joules. A body can store energy because of its motion or because of its position. The total energy of an isolated system stays constant; energy only changes from one form to another. This idea is called the law of conservation of energy.",
+    "text": "Energy and Simple Machines\n1.1 What is Energy?\nEnergy is the capacity of a body to do work. Energy is measured in joules. A body can store energy because of its motion or because of its position. The total energy of an isolated system stays constant; energy only changes from one form to another. This idea is called the law of conservation of energy.",
+    "figures": [],
+    "captions": []
+   },
+   {
+    "page_number": 2,
+    "page_type": "Digital",
+    "raw_text": "1.2 Kinetic Energy\nThe energy a body has because of its motion is called kinetic energy. A rolling ball, flowing water and a moving car all have kinetic energy. Kinetic energy equals one half of the mass multiplied by the square of the speed, written as KE = 1/2 m v^2. Doubling the speed of a car makes its kinetic energy four times larger, which is why fast cars need much longer distances to stop.",
+    "text": "1.2 Kinetic Energy\nThe energy a body has because of its motion is called kinetic energy. A rolling ball, flowing water and a moving car all have kinetic energy. Kinetic energy equals one half of the mass multiplied by the square of the speed, written as KE = 1/2 m v^2. Doubling the speed of a car makes its kinetic energy four times larger, which is why fast cars need much longer distances to stop.",
+    "figures": [],
+    "captions": []
+   },
+   {
+    "page_number": 3,
+    "page_type": "Digital",
+    "raw_text": "1.3 Potential Energy\nThe energy stored in a body because of its position or shape is called potential energy. Water held behind a dam and a stretched rubber band both store potential energy. Gravitational potential energy equals mass times gravitational acceleration times height, written as PE = m g h. When the water is released it falls and its potential energy turns into kinetic energy that can spin a turbine.",
+    "text": "1.3 Potential Energy\nThe energy stored in a body because of its position or shape is called potential energy. Water held behind a dam and a stretched rubber band both store potential energy. Gravitational potential energy equals mass times gravitational acceleration times height, written as PE = m g h. When the water is released it falls and its potential energy turns into kinetic energy that can spin a turbine.",
+    "figures": [],
+    "captions": []
+   },
+   {
+    "page_number": 4,
+    "page_type": "Digital",
+    "raw_text": "2.1 Levers\nA lever is a rigid bar that turns about a fixed point called the fulcrum. The force applied to the lever is the effort and the weight being moved is the load. A seesaw, a pair of scissors and a crowbar are all levers. Placing the fulcrum close to the load lets a small effort lift a heavy load. Figure 2.1 Parts of a lever: effort, fulcrum and load.",
+    "text": "2.1 Levers\nA lever is a rigid bar that turns about a fixed point called the fulcrum. The force applied to the lever is the effort and the weight being moved is the load. A seesaw, a pair of scissors and a crowbar are all levers. Placing the fulcrum close to the load lets a small effort lift a heavy load. Figure 2.1 Parts of a lever: effort, fulcrum and load.",
+    "figures": [],
+    "captions": []
+   },
+   {
+    "page_number": 5,
+    "page_type": "Digital",
+    "raw_text": "2.2 Pulleys\nA pulley is a wheel with a groove around its rim that carries a rope. A single fixed pulley does not reduce the effort, but it changes the direction of the force, so you can pull down to lift a load up. Combining several pulleys in a block and tackle reduces the effort needed, because the load is shared between several sections of rope. Cranes on building sites use block and tackle systems.",
+    "text": "2.2 Pulleys\nA pulley is a wheel with a groove around its rim that carries a rope. A single fixed pulley does not reduce the effort, but it changes the direction of the force, so you can pull down to lift a load up. Combining several pulleys in a block and tackle reduces the effort needed, because the load is shared between several sections of rope. Cranes on building sites use block and tackle systems.",
+    "figures": [],
+    "captions": []
+   },
+   {
+    "page_number": 6,
+    "page_type": "Digital",
+    "raw_text": "2.3 Mechanical Advantage and Efficiency\nMechanical advantage is the ratio of the load to the effort. A machine with a mechanical advantage of four lets an effort of 100 newtons move a load of 400 newtons. Efficiency is the useful work output divided by the work input, usually given as a percentage. No real machine is 100 percent efficient because some energy is always lost as heat through friction. Oiling the moving parts reduces friction and raises efficiency.",
+    "text": "2.3 Mechanical Advantage and Efficiency\nMechanical advantage is the ratio of the load to the effort. A machine with a mechanical advantage of four lets an effort of 100 newtons move a load of 400 newtons. Efficiency is the useful work output divided by the work input, usually given as a percentage. No real machine is 100 percent efficient because some energy is always lost as heat through friction. Oiling the moving parts reduces friction and raises efficiency.",
+    "figures": [],
+    "captions": []
+   }
+  ]
+ }
+}

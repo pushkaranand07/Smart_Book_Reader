@@ -1,0 +1,67 @@
+{"id": "g001", "book": "jesc101", "question": "What is a balanced chemical equation and why must chemical equations be balanced?", "answerable": true, "expected_pages": [3, 14]}
+{"id": "g002", "book": "jesc101", "question": "What happens in a combination reaction?", "answerable": true, "expected_pages": [6, 7, 14]}
+{"id": "g003", "book": "jesc101", "question": "What is thermal decomposition? Give an example.", "answerable": true, "expected_pages": [8]}
+{"id": "g004", "book": "jesc101", "question": "What is a precipitation reaction?", "answerable": true, "expected_pages": [11, 14]}
+{"id": "g005", "book": "jesc101", "question": "Define oxidation and reduction.", "answerable": true, "expected_pages": [12, 14]}
+{"id": "g006", "book": "jesc101", "question": "What is corrosion?", "answerable": true, "expected_pages": [13]}
+{"id": "g007", "book": "jesc101", "question": "What is rancidity and how can it be prevented?", "answerable": true, "expected_pages": [13]}
+{"id": "g008", "book": "jesc101", "question": "What are exothermic reactions?", "answerable": true, "expected_pages": [7, 14]}
+{"id": "g009", "book": "jesc101", "question": "What is a displacement reaction?", "answerable": true, "expected_pages": [10, 11]}
+{"id": "g010", "book": "jesc102", "question": "What are olfactory indicators?", "answerable": true, "expected_pages": [2, 3]}
+{"id": "g011", "book": "jesc102", "question": "What is a neutralisation reaction?", "answerable": true, "expected_pages": [5, 8]}
+{"id": "g012", "book": "jesc102", "question": "What does the pH scale measure?", "answerable": true, "expected_pages": [9, 18]}
+{"id": "g013", "book": "jesc102", "question": "How does a change in pH cause tooth decay?", "answerable": true, "expected_pages": [11]}
+{"id": "g014", "book": "jesc102", "question": "What is the chlor-alkali process?", "answerable": true, "expected_pages": [14]}
+{"id": "g015", "book": "jesc102", "question": "What are the uses of bleaching powder?", "answerable": true, "expected_pages": [15]}
+{"id": "g016", "book": "jesc102", "question": "How is plaster of Paris made from gypsum?", "answerable": true, "expected_pages": [16, 17]}
+{"id": "g017", "book": "jesc102", "question": "What is water of crystallisation?", "answerable": true, "expected_pages": [16, 17, 18]}
+{"id": "g018", "book": "jesc103", "question": "What does ductility mean for a metal?", "answerable": true, "expected_pages": [2, 19]}
+{"id": "g019", "book": "jesc103", "question": "What is the reactivity series?", "answerable": true, "expected_pages": [9]}
+{"id": "g020", "book": "jesc103", "question": "What are amphoteric oxides?", "answerable": true, "expected_pages": [5, 19]}
+{"id": "g021", "book": "jesc103", "question": "What is aqua regia?", "answerable": true, "expected_pages": [8]}
+{"id": "g022", "book": "jesc103", "question": "What is the difference between roasting and calcination?", "answerable": true, "expected_pages": [15]}
+{"id": "g023", "book": "jesc103", "question": "How are metals refined by electrolytic refining?", "answerable": true, "expected_pages": [16]}
+{"id": "g024", "book": "jesc103", "question": "What is galvanisation?", "answerable": true, "expected_pages": [18]}
+{"id": "g025", "book": "jesc103", "question": "What is the thermit reaction?", "answerable": true, "expected_pages": [16]}
+{"id": "g026", "book": "jesc103", "question": "What is gangue?", "answerable": true, "expected_pages": [14, 15]}
+{"id": "g027", "book": "jesc104", "question": "What is catenation?", "answerable": true, "expected_pages": [5, 6, 20]}
+{"id": "g028", "book": "jesc104", "question": "What is a homologous series?", "answerable": true, "expected_pages": [9, 10, 20]}
+{"id": "g029", "book": "jesc104", "question": "How do soap micelles form?", "answerable": true, "expected_pages": [17, 18]}
+{"id": "g030", "book": "jesc104", "question": "What is an esterification reaction?", "answerable": true, "expected_pages": [16]}
+{"id": "g031", "book": "jesc104", "question": "What is the hydrogenation of vegetable oils?", "answerable": true, "expected_pages": [14]}
+{"id": "g032", "book": "jesc104", "question": "What is denatured alcohol?", "answerable": true, "expected_pages": [15]}
+{"id": "g033", "book": "jesc105", "question": "What is anaerobic respiration?", "answerable": true, "expected_pages": [9, 10, 21]}
+{"id": "g034", "book": "jesc105", "question": "What is the function of villi in the small intestine?", "answerable": true, "expected_pages": [8]}
+{"id": "g035", "book": "jesc105", "question": "What is the role of haemoglobin?", "answerable": true, "expected_pages": [12]}
+{"id": "g036", "book": "jesc105", "question": "What do xylem and phloem transport?", "answerable": true, "expected_pages": [16, 17, 21]}
+{"id": "g037", "book": "jesc105", "question": "What is transpiration?", "answerable": true, "expected_pages": [17]}
+{"id": "g038", "book": "jesc105", "question": "What is double circulation?", "answerable": true, "expected_pages": [14]}
+{"id": "g039", "book": "jesc105", "question": "How does an artificial kidney work?", "answerable": true, "expected_pages": [19]}
+{"id": "g040", "book": "jesc106", "question": "What is a reflex arc?", "answerable": true, "expected_pages": [3, 4]}
+{"id": "g041", "book": "jesc106", "question": "What happens at a synapse?", "answerable": true, "expected_pages": [2]}
+{"id": "g042", "book": "jesc106", "question": "What is the function of the cerebellum?", "answerable": true, "expected_pages": [5]}
+{"id": "g043", "book": "jesc106", "question": "How does auxin make a plant bend towards light?", "answerable": true, "expected_pages": [9]}
+{"id": "g044", "book": "jesc106", "question": "What does thyroxin do?", "answerable": true, "expected_pages": [11]}
+{"id": "g045", "book": "jesc106", "question": "How does insulin regulate blood sugar?", "answerable": true, "expected_pages": [11, 12]}
+{"id": "g046", "book": "jesc106", "question": "What does adrenaline do?", "answerable": true, "expected_pages": [10]}
+{"id": "g047", "book": "jesc106", "question": "What is abscisic acid?", "answerable": true, "expected_pages": [9]}
+{"id": "g048", "book": "The+48+Laws+Of+Power", "question": "What does the law 'never outshine the master' advise?", "answerable": true, "expected_pages": [9, 25, 26, 27]}
+{"id": "g049", "book": "The+48+Laws+Of+Power", "question": "Why was Nicolas Fouquet arrested by Louis XIV?", "answerable": true, "expected_pages": [25, 26]}
+{"id": "g050", "book": "The+48+Laws+Of+Power", "question": "Why should you always say less than necessary?", "answerable": true, "expected_pages": [9, 54, 55]}
+{"id": "g051", "book": "The+48+Laws+Of+Power", "question": "Why is reputation called the cornerstone of power?", "answerable": true, "expected_pages": [9, 60, 61]}
+{"id": "g052", "book": "The+48+Laws+Of+Power", "question": "What does 'use absence to increase respect and honor' mean?", "answerable": true, "expected_pages": [11, 138, 139]}
+{"id": "g053", "book": "The+48+Laws+Of+Power", "question": "What does 'assume formlessness' mean?", "answerable": true, "expected_pages": [442, 445]}
+{"id": "u001", "book": "jesc101", "question": "Who won the 2022 football world cup?", "answerable": false, "expected_pages": []}
+{"id": "u002", "book": "jesc101", "question": "What is the speed of light in a vacuum?", "answerable": false, "expected_pages": []}
+{"id": "u003", "book": "jesc102", "question": "How does a nuclear reactor generate electricity?", "answerable": false, "expected_pages": []}
+{"id": "u004", "book": "jesc102", "question": "What is Ohm's law?", "answerable": false, "expected_pages": []}
+{"id": "u005", "book": "jesc103", "question": "What is the capital of Australia?", "answerable": false, "expected_pages": []}
+{"id": "u006", "book": "jesc103", "question": "How do vaccines train the immune system?", "answerable": false, "expected_pages": []}
+{"id": "u007", "book": "jesc104", "question": "What causes earthquakes?", "answerable": false, "expected_pages": []}
+{"id": "u008", "book": "jesc105", "question": "How does the human eye focus light on the retina?", "answerable": false, "expected_pages": []}
+{"id": "u009", "book": "jesc105", "question": "How does the stock market work?", "answerable": false, "expected_pages": []}
+{"id": "u010", "book": "jesc106", "question": "Who wrote Romeo and Juliet?", "answerable": false, "expected_pages": []}
+{"id": "u011", "book": "jesc106", "question": "How do black holes form?", "answerable": false, "expected_pages": []}
+{"id": "u012", "book": "The+48+Laws+Of+Power", "question": "What is photosynthesis?", "answerable": false, "expected_pages": []}
+{"id": "u013", "book": "The+48+Laws+Of+Power", "question": "How do I balance a chemical equation?", "answerable": false, "expected_pages": []}
+{"id": "u014", "book": "The+48+Laws+Of+Power", "question": "What is the boiling point of water in kelvin?", "answerable": false, "expected_pages": []}

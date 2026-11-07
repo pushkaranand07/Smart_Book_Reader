@@ -1,0 +1,16 @@
+{"id": "d001", "book": "jesc101", "question": "What are endothermic reactions?", "answerable": true, "expected_pages": [10, 14, 15]}
+{"id": "d002", "book": "jesc102", "question": "What is baking soda used for?", "answerable": true, "expected_pages": [15]}
+{"id": "d003", "book": "jesc103", "question": "What is an alloy?", "answerable": true, "expected_pages": [18, 19]}
+{"id": "d004", "book": "jesc104", "question": "What is a substitution reaction?", "answerable": true, "expected_pages": [14]}
+{"id": "d005", "book": "jesc105", "question": "What are stomata?", "answerable": true, "expected_pages": [5, 10]}
+{"id": "d006", "book": "jesc105", "question": "What is the function of platelets?", "answerable": true, "expected_pages": [15]}
+{"id": "d007", "book": "jesc106", "question": "Where is growth hormone produced?", "answerable": true, "expected_pages": [11, 12]}
+{"id": "d008", "book": "jesc106", "question": "What are gibberellins?", "answerable": true, "expected_pages": [9]}
+{"id": "d009", "book": "The+48+Laws+Of+Power", "question": "What does 'court attention at all cost' mean?", "answerable": true, "expected_pages": [9, 67, 68]}
+{"id": "d010", "book": "The+48+Laws+Of+Power", "question": "What does 'make other people come to you' mean?", "answerable": true, "expected_pages": [10, 85, 88]}
+{"id": "d011", "book": "jesc103", "question": "Who painted the Mona Lisa?", "answerable": false, "expected_pages": []}
+{"id": "d012", "book": "jesc104", "question": "How does GPS work?", "answerable": false, "expected_pages": []}
+{"id": "d013", "book": "jesc102", "question": "What is the GDP of India?", "answerable": false, "expected_pages": []}
+{"id": "d014", "book": "jesc106", "question": "What is the theory of relativity?", "answerable": false, "expected_pages": []}
+{"id": "d015", "book": "The+48+Laws+Of+Power", "question": "How do airplanes fly?", "answerable": false, "expected_pages": []}
+{"id": "d016", "book": "jesc101", "question": "What is the population of Tokyo?", "answerable": false, "expected_pages": []}

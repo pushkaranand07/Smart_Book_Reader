@@ -1,0 +1,11 @@
+{"id": "ci01", "book": "ci_physics", "question": "What is energy?", "answerable": true, "expected_pages": [1]}
+{"id": "ci02", "book": "ci_physics", "question": "What does the law of conservation of energy say?", "answerable": true, "expected_pages": [1]}
+{"id": "ci03", "book": "ci_physics", "question": "What is kinetic energy?", "answerable": true, "expected_pages": [2]}
+{"id": "ci04", "book": "ci_physics", "question": "Why do fast cars need longer distances to stop?", "answerable": true, "expected_pages": [2]}
+{"id": "ci05", "book": "ci_physics", "question": "What is potential energy?", "answerable": true, "expected_pages": [3]}
+{"id": "ci06", "book": "ci_physics", "question": "What is the fulcrum of a lever?", "answerable": true, "expected_pages": [4]}
+{"id": "ci07", "book": "ci_physics", "question": "How does a single fixed pulley help?", "answerable": true, "expected_pages": [5]}
+{"id": "ci08", "book": "ci_physics", "question": "Why is no machine 100 percent efficient?", "answerable": true, "expected_pages": [6]}
+{"id": "ci09", "book": "ci_physics", "question": "Who discovered penicillin?", "answerable": false, "expected_pages": []}
+{"id": "ci10", "book": "ci_physics", "question": "What is the capital of Japan?", "answerable": false, "expected_pages": []}
+{"id": "ci11", "book": "ci_physics", "question": "How do vaccines work?", "answerable": false, "expected_pages": []}
