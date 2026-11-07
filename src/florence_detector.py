@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -39,18 +40,25 @@ def _load_florence():
     if _florence_model is not None:
         return _florence_available, _florence_status
 
+    mode = os.environ.get("FLORENCE_MODE", "base").strip().lower()
+    adapter = _resolve_adapter_dir()
+    if mode == "disabled":
+        return False, "Florence-2 disabled (FLORENCE_MODE=disabled)"
+    if mode == "required" and not (adapter / "adapter_model.safetensors").exists():
+        return False, f"Florence-2 fine-tuned weights missing at {adapter} (FLORENCE_MODE=required)"
+
     with _florence_lock:
         if _florence_model is not None:
             return _florence_available, _florence_status
         try:
-            adapter = _resolve_adapter_dir()
             _florence_model, _florence_processor, _florence_device = load_trained_model(adapter)
             if (adapter / "adapter_model.safetensors").exists():
                 _florence_status = f"Florence-2 fine-tuned Picture detector ready on {_florence_device.upper()}"
             else:
                 _florence_status = f"Florence-2-base (no adapter) on {_florence_device.upper()}"
             _florence_available = True
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, ImportError) as e:
+            logger.error("Florence-2 failed to load: %s", e)
             _florence_available = False
             _florence_status = f"Florence-2 initialization error: {e}"
 
@@ -95,9 +103,8 @@ class FlorenceVisualDetector:
                     "width": w,
                     "height": h,
                 })
-        except Exception:
-            logger.exception("Florence visual detection failed")
-            pass
+        except (RuntimeError, ValueError, IndexError, KeyError) as exc:
+            logger.error("Florence visual detection failed: %s", exc)
 
         results.sort(key=lambda r: r["width"] * r["height"], reverse=True)
         return results
@@ -111,8 +118,8 @@ class FlorenceVisualDetector:
                     _florence_model, _florence_processor, pil_image, _florence_device, max_new_tokens=256
                 )
             return det.get("raw_text", "").strip()
-        except Exception:
-            logger.exception("Florence image captioning failed")
+        except (RuntimeError, ValueError, IndexError, KeyError) as exc:
+            logger.error("Florence image captioning failed: %s", exc)
             return ""
 
     def detect_and_caption(self, pil_image: Image.Image) -> Dict[str, Any]:

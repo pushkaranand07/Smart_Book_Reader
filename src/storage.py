@@ -7,14 +7,15 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+# DATA_DIR is shared with the API (api.config.Settings.data_dir) so both read and write the same tree.
+DATA_DIR = Path(os.environ.get("DATA_DIR") or BASE_DIR / "data").resolve()
 UPLOADS_DIR = DATA_DIR / "uploads"
 EXTRACTED_DIR = DATA_DIR / "extracted"
 PAGES_DIR = DATA_DIR / "pages"
 IMAGES_DIR = DATA_DIR / "images"
 
 # Bump this version whenever extraction, padding, or matching logic changes to auto-invalidate stale caches
-PIPELINE_VERSION = "v4.1"
+PIPELINE_VERSION = "v5.0"
 
 
 def get_cache_key(

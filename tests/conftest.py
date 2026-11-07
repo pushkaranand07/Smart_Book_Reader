@@ -9,6 +9,7 @@ import os
 import pytest
 
 os.environ.setdefault("QA_BACKEND", "lexical")
+os.environ.setdefault("FLORENCE_MODE", "disabled")
 os.environ.pop("GEMINI_API_KEY", None)
 os.environ.pop("GOOGLE_API_KEY", None)
 
