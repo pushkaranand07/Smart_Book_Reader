@@ -1,299 +1,23 @@
-import json
-import os
-import re
-from typing import Any, Dict, List, Optional, Tuple
+"""Public QA entry point: grounded text answers from `src.qa` plus figure selection.
 
-from src.search import extract_meaningful_keywords, search_pages
-from src.pdf_processor import find_figures_for_query, extract_meaningful_terms, is_figure_or_table
-from src.normalized_document import parse_explicit_reference
-
-BOOK_QA_SYSTEM_PROMPT = """You are an intelligent, expert Book AI tutor and assistant.
-Your goal is to provide accurate, direct answers based only on the uploaded book excerpts.
-
-Guidelines:
-1. Grounding: Anchor your answers in the concepts, experiments, chemical reactions, activities, and topics present in the provided book excerpts.
-2. Conceptual Inference & Reasoning: If the question asks "why", "how", or asks to solve an exercise/activity question (e.g. why magnesium ribbon is cleaned before burning, explaining underlying reactions, balancing equations), use your expert reasoning and scientific principles connected to the book's context to provide a complete, clear explanation.
-3. Answer style: Match the depth to the question. Do not force a one-word or overly compressed answer. For equations and science questions, explain the relevant substances, components, symbols, coefficients, and reasoning needed to understand the answer, using only the book context and standard scientific reasoning. Keep the explanation focused and avoid unrelated background.
-4. Formatting: Do not use Markdown heading markers such as # or ###. Use plain text. For chemical formulas and equations, use LaTeX math delimiters, for example: $$\\mathrm{2Mg + O_2 \\rightarrow 2MgO}$$. Use correct chemical subscripts and coefficients.
-5. Do not include page numbers, source citations, or extra sections unless the user asks for them.
-6. Out-of-Scope Topics: Only if the user's question is completely unrelated to anything covered in the book excerpts, state that the topic is not covered in the uploaded book.
+`answer_question` keeps the historical response shape (source_pages, evidence, figures, images, ...) and adds the
+v2 fields (extractive_answer, citations, confidence, mode).
 """
 
+from __future__ import annotations
 
-def format_evidence_prompt(query: str, evidence_pages: List[Dict[str, Any]]) -> str:
-    """Format the retrieved evidence into a clean prompt for the LLM."""
-    excerpts = []
-    for item in evidence_pages:
-        p_num = item["page_number"]
-        p_type = item.get("page_type", "Digital")
-        text = item.get("text", "").strip()
-        excerpts.append(f"=== BOOK EVIDENCE: PAGE {p_num} ({p_type}) ===\n{text}")
+import json
+import logging
+import os
+import re
+from typing import Any
 
-    evidence_block = "\n\n".join(excerpts)
-    prompt = f"""{BOOK_QA_SYSTEM_PROMPT}
+from src.normalized_document import parse_explicit_reference
+from src.pdf_processor import extract_meaningful_terms, find_figures_for_query, is_figure_or_table
+from src.qa.engine import NOT_COVERED, get_engine
+from src.qa.types import AnswerResult
 
-BOOK EXCERPTS:
-{evidence_block}
-
-USER QUESTION:
-{query}
-
-ANSWER:"""
-    return prompt
-
-
-# Preferred model names — tried in order, first successful response wins
-_PREFERRED_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
-]
-
-
-def _discover_models(client) -> list:
-    """Dynamically list models that support generateContent from the API."""
-    try:
-        available = []
-        for m in client.models.list():
-            actions = getattr(m, "supported_actions", None) or []
-            name = getattr(m, "name", "") or ""
-            short = name.replace("models/", "")
-            if "generateContent" in actions and "embedding" not in short:
-                available.append(short)
-        return available
-    except Exception:
-        return []
-
-
-def llm_select_relevant_figures(
-    query: str,
-    candidate_figures: List[Dict[str, Any]],
-    api_key: str,
-    max_figures: int = 3,
-) -> List[Dict[str, Any]]:
-    """Use Gemini LLM to intelligently select and rank figures that illustrate the user's question."""
-    if not candidate_figures or not api_key:
-        return candidate_figures[:max_figures]
-
-    # Deduplicate candidates by (page_number, figure_id, image_path)
-    unique_candidates: List[Dict[str, Any]] = []
-    seen = set()
-    for f in candidate_figures:
-        key = (f.get("page_number"), f.get("figure_id"), f.get("image_path"))
-        if key not in seen:
-            seen.add(key)
-            unique_candidates.append(f)
-
-    if len(unique_candidates) <= 1:
-        return unique_candidates
-
-    try:
-        from google import genai
-        from google.genai import types as genai_types
-
-        client = genai.Client(
-            api_key=api_key,
-            http_options=genai_types.HttpOptions(api_version="v1"),
-        )
-
-        options_text = []
-        for i, fig in enumerate(unique_candidates[:8]):
-            fid = fig.get("figure_id", f"fig_{i+1}")
-            flabel = fig.get("figure_label", f"Figure {fid}")
-            p_num = fig.get("page_number", "?")
-            cap = fig.get("caption", "No caption")
-            labels = ", ".join(fig.get("labels_inside", [])[:6]) or "None"
-            ctx = (fig.get("surrounding_context") or fig.get("context") or "")[:180]
-            options_text.append(
-                f"- Candidate [{i+1}]: ID={fid}, Page={p_num}, Label={flabel}\n"
-                f"  Caption: {cap}\n"
-                f"  Internal Labels: {labels}\n"
-                f"  Context: {ctx}"
-            )
-
-        prompt = f"""You are an expert textbook visual selector.
-User Question / Topic: "{query}"
-
-Here are candidate figures and diagrams extracted from the textbook:
-{chr(10).join(options_text)}
-
-Task: Identify which candidate figure(s) directly illustrate, support, or explain the mechanism/activity/concept asked in the question.
-If multiple candidates are relevant, list their candidate numbers in order of relevance (e.g., 1, 3).
-If NONE of the figures are relevant to the user's question, respond with: NONE.
-
-Respond ONLY in the format of comma-separated candidate numbers (e.g. 1, 2) or NONE."""
-
-        for model_name in _PREFERRED_MODELS:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    resp_clean = response.text.strip().upper()
-                    if "NONE" in resp_clean and not re.search(r'\b[1-8]\b', resp_clean):
-                        return []
-
-                    matched_indices = []
-                    nums = re.findall(r'\b([1-8])\b', resp_clean)
-                    for n in nums:
-                        idx = int(n) - 1
-                        if 0 <= idx < len(unique_candidates) and idx not in matched_indices:
-                            matched_indices.append(idx)
-
-                    if matched_indices:
-                        selected = [unique_candidates[i] for i in matched_indices]
-                        return selected[:max_figures]
-                    break
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    return unique_candidates[:max_figures]
-
-
-def contrastive_disambiguate_figures(
-    query: str,
-    candidate_figures: List[Dict[str, Any]],
-    api_key: str,
-) -> Optional[str]:
-    """Micro-LLM Contrastive Reranker to pick the most accurate figure when scores are close."""
-    if len(candidate_figures) < 2:
-        return None
-
-    try:
-        from google import genai
-        from google.genai import types as genai_types
-
-        client = genai.Client(
-            api_key=api_key,
-            http_options=genai_types.HttpOptions(api_version="v1"),
-        )
-
-        options_text = []
-        for i, fig in enumerate(candidate_figures[:3]):
-            fid = fig.get("figure_id", f"candidate_{i+1}")
-            flabel = fig.get("figure_label", f"Figure {fid}")
-            cap = fig.get("caption", "No caption")
-            labels = ", ".join(fig.get("labels_inside", [])[:6]) or "None"
-            ctx = (fig.get("surrounding_context") or fig.get("context") or "")[:200]
-            options_text.append(
-                f"- Candidate ID: {fid}\n  Label: {flabel}\n  Caption: {cap}\n  Internal Labels: {labels}\n  Context: {ctx}"
-            )
-
-        prompt = f"""You are an expert textbook visual selector.
-User Question/Topic: "{query}"
-
-We have multiple candidate figures from the textbook:
-{chr(10).join(options_text)}
-
-Select the SINGLE candidate ID whose visual directly explains or illustrates the specific mechanism/process or subject asked.
-Respond ONLY with the candidate ID (e.g., 5.11). Do not include any other words or punctuation."""
-
-        for model_name in _PREFERRED_MODELS:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    selected_raw = response.text.strip().lower()
-                    selected_clean = re.sub(r'[^a-z0-9\.]', ' ', selected_raw)
-                    tokens = selected_clean.split()
-                    for fig in candidate_figures:
-                        fig_id = fig.get("figure_id", "").lower()
-                        if fig_id in tokens or any(t == fig_id for t in tokens):
-                            return fig.get("figure_id")
-                    break
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return None
-
-
-def call_gemini_llm(prompt: str, api_key: str) -> str:
-    """Call Google Gemini LLM using the google-genai SDK (v1 API)."""
-    try:
-        from google import genai
-        from google.genai import types as genai_types
-
-        client = genai.Client(
-            api_key=api_key,
-            http_options=genai_types.HttpOptions(api_version="v1"),
-        )
-
-        # 1. Try preferred models in order
-        last_error = None
-        for model_name in _PREFERRED_MODELS:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    return response.text.strip()
-            except Exception as e:
-                last_error = e
-                continue
-
-        # 2. Fallback: auto-discover what models this key actually has
-        discovered = _discover_models(client)
-        for model_name in discovered:
-            if model_name in _PREFERRED_MODELS:
-                continue
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    return response.text.strip()
-            except Exception as e:
-                last_error = e
-                continue
-
-        if last_error:
-            return (
-                f"LLM Error — no working model found for your API key.\n"
-                f"Last error: {last_error}\n"
-                f"Available models on your key: {discovered or 'could not list'}"
-            )
-
-        return "I couldn't find sufficient information in the uploaded book."
-    except Exception as e:
-        return f"Error connecting to LLM: {e}"
-
-
-def synthesize_offline_evidence(query: str, evidence_pages: List[Dict[str, Any]]) -> str:
-    """Build a grounded answer from the most relevant extracted sentences."""
-    query_terms = set(extract_meaningful_terms(query))
-    candidates: List[Tuple[int, str]] = []
-    for page in evidence_pages:
-        text = str(page.get("text") or page.get("snippet") or "")
-        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
-            sentence = re.sub(r"\s+", " ", sentence).strip(" -")
-            if len(sentence) < 25:
-                continue
-            lower = sentence.lower()
-            term_hits = sum(1 for term in query_terms if term in lower)
-            equation_bonus = 4 if re.search(r"(?:→|->||=)", sentence) else 0
-            if term_hits or equation_bonus:
-                candidates.append((term_hits * 3 + equation_bonus, sentence))
-
-    selected: List[str] = []
-    for _, sentence in sorted(candidates, key=lambda item: item[0], reverse=True):
-        if sentence not in selected:
-            selected.append(sentence)
-        if len(selected) >= 6:
-            break
-
-    if not selected:
-        return "I couldn't find sufficient information in the uploaded book."
-    return "\n\n".join(selected)
+logger = logging.getLogger(__name__)
 
 
 def _remove_page_citations(answer: str) -> str:
@@ -309,14 +33,14 @@ def _clean_answer_format(answer: str) -> str:
     return cleaned.strip()
 
 
-def _normalized_pages_for_retrieval(book_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _normalized_pages_for_retrieval(book_data: dict[str, Any]) -> list[dict[str, Any]]:
     """Prefer the normalized document graph when present, but fall back to the legacy page list."""
     normalized_doc = book_data.get("normalized_document")
     if isinstance(normalized_doc, dict):
-        pages: List[Dict[str, Any]] = []
+        pages: list[dict[str, Any]] = []
         for page in normalized_doc.get("pages", []) or []:
-            page_text = page.get("raw_text") or " ".join(
-                [caption.get("text", "") for caption in page.get("captions", [])]
+            page_text = page.get("raw_text") or page.get("text") or " ".join(
+                caption.get("text", "") for caption in page.get("captions", [])
             )
             pages.append(
                 {
@@ -324,50 +48,43 @@ def _normalized_pages_for_retrieval(book_data: Dict[str, Any]) -> List[Dict[str,
                     "page_type": page.get("page_type", "Digital"),
                     "text": page_text,
                     "figures": page.get("figures", []),
+                    "images": page.get("images", []),
                     "captions": page.get("captions", []),
                     "relationships": page.get("relationships", []),
                 }
             )
         if pages:
             return pages
+    return [p for p in book_data.get("pages", []) if isinstance(p, dict)]
 
-    return book_data.get("pages", [])
 
-
-def _explicit_reference_match(query: str, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Prefer a single explicitly requested figure reference like 'Figure 5.2'."""
+def _explicit_reference_match(query: str, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return figures matching an explicitly requested reference like 'Figure 5.2'."""
     target_ref = None
     for pattern in [r"Figure\s+(\d+(?:\.\d+)?)", r"Fig\.?\s*(\d+(?:\.\d+)?)", r"Table\s+(\d+(?:\.\d+)?)"]:
         match = re.search(pattern, query, flags=re.IGNORECASE)
         if match:
             target_ref = match.group(1)
             break
-
     if not target_ref:
         return []
 
-    matches: List[Dict[str, Any]] = []
+    matches: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for page in pages:
-        if not isinstance(page, dict):
-            continue
         for fig in page.get("figures", []) or []:
             if not isinstance(fig, dict):
                 continue
-            fig_label = str(fig.get("figure_label") or "")
-            fig_id = str(fig.get("figure_id") or "")
-            caption = str(fig.get("caption") or "")
-            if target_ref in {fig_id, parse_explicit_reference(fig_label), parse_explicit_reference(caption)}:
+            refs = {
+                str(fig.get("figure_id") or ""),
+                parse_explicit_reference(str(fig.get("figure_label") or "")),
+                parse_explicit_reference(str(fig.get("caption") or "")),
+            }
+            key = str(fig.get("figure_id") or fig.get("id") or id(fig))
+            if target_ref in refs and key not in seen:
+                seen.add(key)
                 matches.append(fig)
-
-    seen = set()
-    deduped: List[Dict[str, Any]] = []
-    for fig in matches:
-        key = fig.get("figure_id") or fig.get("id")
-        if key and key in seen:
-            continue
-        seen.add(key)
-        deduped.append(fig)
-    return deduped
+    return matches
 
 
 def _question_requests_visual(query: str) -> bool:
@@ -375,7 +92,8 @@ def _question_requests_visual(query: str) -> bool:
     return bool(
         parse_explicit_reference(query)
         or re.search(
-            r"\b(?:figure|fig\.?|diagram|image|picture|illustration|graph|chart|map|visual|shown|show|depict|draw|setup|apparatus)\b",
+            r"\b(?:figure|fig\.?|diagram|image|picture|illustration|graph|chart|map|visual|shown|show|depict|draw|"
+            r"setup|apparatus)\b",
             query,
             flags=re.IGNORECASE,
         )
@@ -384,216 +102,149 @@ def _question_requests_visual(query: str) -> bool:
 
 def _visual_fallbacks(
     query: str,
-    evidence_pages: List[Dict[str, Any]],
-    selected_figures: List[Dict[str, Any]],
-    all_pages: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """Use a relevant page crop only when extraction has no usable figure record."""
+    evidence_pages: list[dict[str, Any]],
+    selected_figures: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pick the best figure on the evidence pages when ranking found none."""
     if selected_figures:
         return selected_figures
-
     query_terms = set(extract_meaningful_terms(query))
-    candidate_pages = evidence_pages[:2]
-    if all_pages:
-        best_page = max(
-            all_pages,
-            key=lambda page: len(query_terms & set(extract_meaningful_terms(str(page.get("text") or "")))),
-        )
-        best_number = best_page.get("page_number")
-        candidate_pages = [
-            page for page in all_pages
-            if abs((page.get("page_number") or 0) - (best_number or 0)) <= 1
-        ]
-
-    for page in candidate_pages:
-        text = str(page.get("text") or "")
-        text_terms = set(extract_meaningful_terms(text))
-        if len(query_terms & text_terms) < 2:
+    for page in evidence_pages[:2]:
+        if len(query_terms & set(extract_meaningful_terms(str(page.get("text") or "")))) < 2:
             continue
+        page_figures = [f for f in page.get("figures", []) or [] if isinstance(f, dict) and is_figure_or_table(f)]
 
-        page_figures = [
-            figure for figure in page.get("figures", []) or []
-            if isinstance(figure, dict) and is_figure_or_table(figure)
-        ]
+        def figure_score(figure: dict[str, Any]) -> int:
+            text = " ".join(
+                str(figure.get(k) or "") for k in ["figure_label", "caption", "surrounding_context"]
+            ).lower()
+            return sum(term in text for term in query_terms)
+
         if page_figures:
-            def figure_score(figure: Dict[str, Any]) -> int:
-                figure_text = " ".join(
-                    str(figure.get(key) or "")
-                    for key in ["figure_label", "caption", "surrounding_context", "associated_keywords"]
-                ).lower()
-                return sum(term in figure_text for term in query_terms)
-
-            best_figure = max(page_figures, key=figure_score)
-            if figure_score(best_figure) > 0:
-                return [best_figure]
-
-        for image_path in page.get("images", []) or []:
-            if image_path and os.path.exists(image_path):
-                return [{
-                    "figure_id": f"page-{page.get('page_number')}-visual",
-                    "figure_label": f"Page {page.get('page_number')} visual",
-                    "caption": "Relevant visual extracted from the source page",
-                    "page_number": page.get("page_number"),
-                    "image_path": image_path,
-                    "source_type": "page_image_fallback",
-                }]
+            best = max(page_figures, key=figure_score)
+            if figure_score(best) > 0:
+                return [best]
     return selected_figures
+
+
+def _select_figures(query: str, pages: list[dict[str, Any]], evidence_pages: list[dict[str, Any]]) -> tuple[
+    list[dict[str, Any]], float, bool
+]:
+    explicit = _explicit_reference_match(query, pages)
+    if explicit:
+        return explicit, 100.0, False
+    if not _question_requests_visual(query):
+        return [], 0.0, False
+
+    ranked, margin, ambiguous = find_figures_for_query(page_results=pages, query=query, top_k=6, min_score=0.0)
+    ranked.sort(
+        key=lambda f: (
+            f.get("relevance_components", {}).get("caption", 0.0),
+            f.get("relevance_components", {}).get("semantic", 0.0),
+            f.get("relevance_score", 0.0),
+        ),
+        reverse=True,
+    )
+    candidates: list[dict[str, Any]] = []
+    seen: set[Any] = set()
+    for fig in ranked:
+        if fig.get("figure_id") in seen:
+            continue
+        if is_figure_or_table(fig) and fig.get("relevance_components", {}).get("caption", 0.0) >= 0.2:
+            seen.add(fig.get("figure_id"))
+            candidates.append(fig)
+
+    selected = candidates[:3]
+    top_score = ranked[0].get("relevance_score", 0.0) if ranked else 0.0
+    if ranked and margin >= 10.0 and top_score >= 25.0:
+        selected = [ranked[0]]
+    selected = [f for f in selected if is_figure_or_table(f)]
+    return _visual_fallbacks(query, evidence_pages, selected), margin, ambiguous
+
+
+def _book_key(book_data: dict[str, Any]) -> str:
+    explicit = book_data.get("book_id") or book_data.get("source_file_hash")
+    if explicit:
+        return str(explicit)
+    digest = hash(json.dumps(book_data.get("normalized_document") or book_data.get("pages"), sort_keys=True, default=str))
+    return f"anon:{digest}"
+
 
 def answer_question(
     query: str,
-    book_data: Dict[str, Any],
-    api_key: Optional[str] = None,
+    book_data: dict[str, Any],
+    api_key: str | None = None,
     top_k: int = 5,
-) -> Dict[str, Any]:
-    """Retrieve evidence, score & disambiguate figures, call LLM with strict prompt, and return structured answer."""
-    pages_list = _normalized_pages_for_retrieval(book_data)
-    if not query.strip() or not pages_list:
-        return {
-            "query": query,
-            "answer": "Please upload a book and ask a question.",
-            "source_pages": [],
-            "evidence": [],
-            "images": [],
-            "figures": [],
-            "is_sufficient": False,
-        }
-
-    # Use a per-book cache key so the semantic index does not leak between different books/tests.
-    book_cache_key = str(book_data.get("book_id") or f"book:{hash(json.dumps(book_data, sort_keys=True, default=str))}")
-
-    # 1. Search & Rank (Retrieval)
-    ranked_evidence = search_pages(pages_list, query, top_k=top_k, book_id=book_cache_key)
-
-    # 2. Handle insufficient evidence
-    if not ranked_evidence:
-        return {
-            "query": query,
-            "answer": "I couldn't find sufficient information in the uploaded book.",
-            "source_pages": [],
-            "evidence": [],
-            "images": [],
-            "figures": [],
-            "is_sufficient": False,
-        }
-
-    source_pages = [p["page_number"] for p in ranked_evidence]
-    resolved_api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-
-    candidate_figures: List[Dict[str, Any]] = []
-    visual_requested = _question_requests_visual(query)
-
-    if visual_requested:
-        global_ranked_figures, confidence_margin, is_ambiguous = find_figures_for_query(
-            page_results=pages_list,
-            query=query,
-            top_k=6,
-            min_score=0.0,
-        )
-        global_ranked_figures.sort(
-            key=lambda item: (
-                item.get("relevance_components", {}).get("caption", 0.0),
-                item.get("relevance_components", {}).get("semantic", 0.0),
-                item.get("relevance_score", 0.0),
-            ),
-            reverse=True,
-        )
-        for f in global_ranked_figures:
-            components = f.get("relevance_components", {})
-            if is_figure_or_table(f) and (
-                parse_explicit_reference(query)
-                or components.get("caption", 0.0) >= 0.2
-            ):
-                candidate_figures.append(f)
-    else:
-        global_ranked_figures, confidence_margin, is_ambiguous = [], 0.0, False
-
-    # Deduplicate candidate figures
-    deduped_candidates: List[Dict[str, Any]] = []
-    seen_fids = set()
-    for f in candidate_figures:
-        fid = f.get("figure_id")
-        if fid not in seen_fids:
-            seen_fids.add(fid)
-            deduped_candidates.append(f)
-    candidate_figures = deduped_candidates
-
-    explicit_matches = _explicit_reference_match(query, pages_list)
-    if explicit_matches:
-        candidate_figures = explicit_matches
-        explicit_page_numbers = {
-            f.get("page_number")
-            for f in explicit_matches
-            if isinstance(f, dict) and f.get("page_number") is not None
-        }
-        if explicit_page_numbers:
-            ranked_evidence = [
-                ev for ev in ranked_evidence if ev.get("page_number") in explicit_page_numbers
-            ]
-            if not ranked_evidence:
-                for page in pages_list:
-                    if not isinstance(page, dict):
-                        continue
-                    if page.get("page_number") in explicit_page_numbers:
-                        snippet = page.get("text") or " ".join(
-                            caption.get("text", "") for caption in page.get("captions", [])
-                        )
-                        ranked_evidence = [{
-                            "page_number": page.get("page_number"),
-                            "page_type": page.get("page_type", "Digital"),
-                            "score": 100.0,
-                            "semantic_score": 1.0,
-                            "matched_terms": ["figure"],
-                            "snippet": snippet[:300],
-                            "text": snippet,
-                            "images": page.get("images", []),
-                        }]
-                        break
-
-    # 4. LLM Visual Selection & Ranking (or Heuristic Fallback)
-    if resolved_api_key and candidate_figures:
-        selected_figures = llm_select_relevant_figures(
-            query=query,
-            candidate_figures=candidate_figures,
-            api_key=resolved_api_key,
-            max_figures=3,
-        )
-        if not selected_figures and candidate_figures:
-            selected_figures = candidate_figures[:2]
-    else:
-        selected_figures = candidate_figures[:3]
-
-    # A clear global winner should not be diluted by other figures from the same page.
-    top_figure_score = global_ranked_figures[0].get("relevance_score", 0.0) if global_ranked_figures else 0.0
-    if global_ranked_figures and confidence_margin >= 10.0 and top_figure_score >= 25.0:
-        selected_figures = [global_ranked_figures[0]]
-
-    # Final strict verification: only retain visuals explicitly representing Figure, Table, or Image
-    selected_figures = [f for f in selected_figures if is_figure_or_table(f)]
-    if visual_requested:
-        selected_figures = _visual_fallbacks(query, ranked_evidence, selected_figures, pages_list)
-
-    # Collect valid distinct image paths strictly from verified figures/tables
-    collected_images = []
-    for fig in selected_figures:
-        img_p = fig.get("image_path")
-        if img_p and os.path.exists(img_p) and img_p not in collected_images:
-            collected_images.append(img_p)
-
-    # 5. Connect to LLM for Answer Generation
-    if resolved_api_key:
-        prompt = format_evidence_prompt(query, ranked_evidence)
-        answer_text = _clean_answer_format(_remove_page_citations(call_gemini_llm(prompt, resolved_api_key)))
-    else:
-        answer_text = synthesize_offline_evidence(query, ranked_evidence)
-
-    return {
+) -> dict[str, Any]:
+    """Answer a question about a processed book. Gemini is used only when a key is configured."""
+    pages = _normalized_pages_for_retrieval(book_data)
+    empty: dict[str, Any] = {
         "query": query,
-        "answer": answer_text,
-        "source_pages": source_pages,
-        "evidence": ranked_evidence,
-        "images": collected_images,
-        "figures": selected_figures,
-        "confidence_margin": confidence_margin,
-        "is_ambiguous": is_ambiguous,
-        "is_sufficient": True,
+        "answer": "Please upload a book and ask a question.",
+        "extractive_answer": None,
+        "source_pages": [],
+        "citations": [],
+        "evidence": [],
+        "images": [],
+        "figures": [],
+        "confidence": 0.0,
+        "confidence_margin": 0.0,
+        "is_ambiguous": False,
+        "is_sufficient": False,
+        "mode": "offline",
+    }
+    if not query.strip() or not pages:
+        return empty
+
+    figure_ids_by_page = {
+        int(p.get("page_number") or 0): [str(f.get("figure_id")) for f in p.get("figures", []) if isinstance(f, dict)]
+        for p in pages
+    }
+    title = str(book_data.get("filename") or (book_data.get("normalized_document") or {}).get("filename") or "")
+    resolved_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    result: AnswerResult = get_engine().answer(
+        query,
+        pages,
+        book_key=_book_key(book_data),
+        title=title,
+        gemini_api_key=resolved_key,
+        figure_ids_by_page=figure_ids_by_page,
+    )
+
+    page_by_number = {p.get("page_number"): p for p in pages}
+    cited_pages = list(dict.fromkeys(c.page_number for c in result.citations))
+    evidence_pages = [
+        {**page_by_number[n], "score": None} for n in cited_pages if n in page_by_number
+    ]
+    figures, margin, ambiguous = _select_figures(query, pages, evidence_pages)
+
+    answer_text = _clean_answer_format(_remove_page_citations(result.answer))
+    is_sufficient = result.is_sufficient
+    explicit = _explicit_reference_match(query, pages)
+    if explicit:
+        # The user named a figure that exists: answer from it even if the body text is thin.
+        cited_pages = list(dict.fromkeys(int(f.get("page_number") or 0) for f in explicit))
+        evidence_pages = [{**page_by_number[n], "score": None} for n in cited_pages if n in page_by_number]
+        if not is_sufficient:
+            is_sufficient = True
+            caption = next((str(f.get("caption")) for f in explicit if f.get("caption")), "")
+            label = str(explicit[0].get("figure_label") or f"Figure {explicit[0].get('figure_id')}")
+            answer_text = f"{label}: {caption}" if caption else label
+    elif not is_sufficient:
+        figures = []
+
+    images = [f["image_path"] for f in figures if f.get("image_path") and os.path.exists(str(f["image_path"]))]
+    payload = result.to_dict()
+    return {
+        **empty,
+        **payload,
+        "query": query,
+        "answer": answer_text if is_sufficient else NOT_COVERED,
+        "is_sufficient": is_sufficient,
+        "source_pages": cited_pages[:top_k] if is_sufficient else [],
+        "evidence": evidence_pages[:top_k] if is_sufficient else [],
+        "figures": figures,
+        "images": list(dict.fromkeys(images)),
+        "confidence_margin": margin,
+        "is_ambiguous": ambiguous,
     }
