@@ -1,0 +1,45 @@
+# Runtime dependencies of the API and the background worker (pinned).
+# Install torch from the CPU index first (see Dockerfile.api):
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
+# --- web / API
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+pydantic==2.13.5
+pydantic-settings==2.16.2
+sqlmodel==0.0.48
+SQLAlchemy==2.1.8
+huey==3.5.4
+slowapi==0.1.10
+limits==5.8.0
+structlog==25.5.0
+prometheus-fastapi-instrumentator==8.1.0
+prometheus_client==0.25.0
+PyJWT==2.12.1
+httpx==0.28.1
+tenacity==9.1.4
+# --- PDF, OCR, images (PyMuPDF is AGPL-3.0: see PLAN.md for the permissive alternative)
+PyMuPDF==1.27.2.3
+pillow==11.3.0
+numpy==2.3.2
+opencv-python-headless==4.10.0
+pytesseract==0.3.13
+rapidocr==3.10.0
+onnxruntime==1.31.1
+# --- retrieval and QA
+bm25s==0.3.16
+scipy==1.16.1
+sentence-transformers==5.5.0
+transformers==5.8.1
+tokenizers==0.22.2
+safetensors==0.7.0
+huggingface_hub==1.11.0
+regex==2026.5.9
+# --- Florence-2 visual detection (FLORENCE_MODE=base|required); peft loads the fine-tuned adapter
+timm==1.0.26
+einops==0.8.2
+peft==0.21.2
+# --- optional Gemini synthesis (only used when GEMINI_API_KEY is set)
+google-genai==2.21.0
+PyYAML==6.0.3

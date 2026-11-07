@@ -3,7 +3,11 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.api"
 
 [deploy]
-healthcheckPath = "/api/health"
-healthcheckTimeout = 180
+startCommand = "/entrypoint.sh api"
+healthcheckPath = "/readyz"
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+# Railway injects PORT. Set API_KEYS, MEDIA_SIGNING_SECRET and CORS_ORIGINS in the service variables,
+# and attach a volume at /app/data. Use JOBS_MODE=thread on a single service, or add a second service
+# with startCommand "/entrypoint.sh worker" and JOBS_MODE=huey sharing the same volume.

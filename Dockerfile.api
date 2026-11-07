@@ -1,34 +1,47 @@
-FROM python:3.13-slim
+# syntax=docker/dockerfile:1
+# API + worker image: CPU-only torch, no training libraries, non-root, models baked in.
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT=false \
-    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
-
-WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        tesseract-ocr \
-        tesseract-ocr-eng \
-        libglib2.0-0 \
-        libgl1 \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt requirements-api.txt ./
-RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt -r requirements-api.txt
-
-COPY api ./api
+# ---------------------------------------------------------------- build: venv with pinned deps + models
+FROM python:3.13-slim AS build
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH \
+    HF_HOME=/opt/models/hf
+RUN python -m venv /opt/venv
+COPY requirements/api.txt /tmp/api.txt
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0 \
+    && pip install -r /tmp/api.txt \
+    && find /opt/venv -name "__pycache__" -type d -prune -exec rm -rf {} + \
+    && find /opt/venv -name "*.pyc" -delete
+WORKDIR /build
 COPY src ./src
-COPY configs ./configs
+COPY scripts/fetch_models.py ./scripts/fetch_models.py
+# Bakes the QA models into HF_HOME and RapidOCR's ONNX models into its package dir (inside the venv).
+RUN python scripts/fetch_models.py qa
 
-RUN mkdir -p /app/data/uploads /app/data/extracted /app/data/pages /app/data/images /app/model
-
+# ---------------------------------------------------------------- runtime
+FROM python:3.13-slim AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH \
+    HF_HOME=/opt/models/hf \
+    DATA_DIR=/app/data PORT=8000 \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng libglib2.0-0 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app && useradd --system --gid app --home /app --shell /usr/sbin/nologin app
+COPY --from=build /opt/venv /opt/venv
+COPY --from=build /opt/models /opt/models
+WORKDIR /app
+COPY --chown=app:app api ./api
+COPY --chown=app:app src ./src
+COPY --chown=app:app configs ./configs
+COPY --chown=app:app scripts/fetch_models.py ./scripts/fetch_models.py
+COPY --chown=app:app docker/entrypoint.sh /entrypoint.sh
+RUN chmod 0755 /entrypoint.sh \
+    && mkdir -p /app/data /app/model/florence_layout && chown -R app:app /app/data /app/model
+USER app
 EXPOSE 8000
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD sh -c "python -c \"import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '8000') + '/api/health')\""
-
-CMD ["sh", "-c", "python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python -c "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8000')+'/healthz')"
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["api"]

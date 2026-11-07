@@ -1,0 +1,3 @@
+# Optional: PaddleOCR as primary OCR (OCR_ENGINE=paddleocr). Large; not in the default image.
+paddleocr==3.7.0
+paddlepaddle==3.3.1
