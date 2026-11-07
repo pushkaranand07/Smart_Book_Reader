@@ -1,6 +1,6 @@
 # Runtime dependencies of the API and the background worker (pinned).
 # Install torch from the CPU index first (see Dockerfile.api):
-#   pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0 torchvision==0.22.0
 # --- web / API
 fastapi==0.141.1
 starlette==1.6.0

@@ -38,7 +38,7 @@ Requirements: Python 3.13, Node 24+, Tesseract (optional fallback OCR).
 
 ```bash
 python -m venv .venv && . .venv/Scripts/activate         # Windows Git Bash; use .venv/bin/activate on Linux/macOS
-pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
+pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0 torchvision==0.22.0
 pip install -r requirements/dev.txt
 cp .env.example .env                                       # set API_KEYS, MEDIA_SIGNING_SECRET
 python scripts/fetch_models.py qa                          # ~700 MB of QA/OCR models, once
