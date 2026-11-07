@@ -1,269 +1,145 @@
 # Smart Book Reader
 
-Smart Book Reader is a document-intelligence application for textbooks, papers, and scanned PDFs. It extracts text and visual regions, builds a normalized document graph, supports grounded question answering, and presents the result through a React interface.
+Upload a textbook, paper or scanned PDF. Smart Book Reader extracts the text (native or OCR), finds figures and
+their real captions, and answers questions about the book with citations to the pages it used. It works fully
+offline; Gemini is an optional upgrade for answer wording.
 
-## Product Architecture
+## Architecture
 
 ```mermaid
-flowchart TD
-    U[User uploads PDF] --> R[React/Vite frontend]
-    R --> A[FastAPI API]
-    A --> P[PDFProcessor]
-    P --> C{Page classification}
-    C -->|Native text| D[DigitalPipeline]
-    C -->|Image/scanned| S[ScannedPipeline]
-    D --> T[PyMuPDF text and vector extraction]
-    S --> O[OCR and OpenCV layout extraction]
-    T --> V[Florence-2 visual detection]
-    O --> V
-    V --> N[Normalized document adapter]
-    N --> G[Pages, figures, captions, relationships]
-    G --> X[Keyword and semantic retrieval]
-    X --> Q[Grounded QA and figure ranking]
-    Q --> R
-    G --> J[JSON cache and media assets]
+flowchart LR
+  UI[React + TypeScript SPA] -->|X-API-Key / JWT| API[FastAPI]
+  API --> DB[(SQLite registry: books, jobs)]
+  API -->|enqueue| Q[(huey queue on SQLite)]
+  Q --> W[Worker]
+  W --> P[PDFProcessor]
+  P -->|native text| D[Digital pipeline: PyMuPDF text, images, vectors, captions]
+  P -->|image pages| S[Scanned pipeline: RapidOCR, Tesseract fallback, OpenCV regions]
+  D --> N[Normalized document: pages, figures, captions, relationships]
+  S --> N
+  N --> FS[(data/: uploads/&lt;sha256&gt;.pdf, extracted/, images/&lt;doc&gt;/p{page}_fig{n}.png)]
+  W -->|build index| IDX[(QA index cache)]
+  API -->|signed, expiring URLs| FS
+  API --> QA[QA: chunk, BM25 + bge-small, RRF, MiniLM rerank, roberta-squad2 reader]
+  QA -. optional .-> G[Gemini]
 ```
 
-### Runtime boundaries
-
-1. **Frontend**: `frontend/src/main.jsx` owns the reading workspace UI; `frontend/src/api/client.js` owns API requests, asset URLs, and health checks.
-2. **API**: `api/main.py` owns HTTP routes, upload handling, cache loading, public media URLs, and question requests.
-3. **Processing**: `src/pdf_processor.py` routes each page to the digital or scanned lane.
-4. **Normalization**: `src/normalized_document.py` converts legacy extractor records into the internal document graph. This is the application contract.
-5. **Retrieval and QA**: `src/search.py`, `src/semantic_search.py`, `src/qa_engine.py`, and figure scoring assemble grounded evidence.
-6. **Persistence**: `src/storage.py` stores uploads, extracted JSON, page assets, and figure crops under `data/`.
-
-The rest of the application does not depend directly on an external parser's output format. Legacy page records are accepted only at the adapter boundary and are converted before retrieval, QA, or UI consumption.
-
-The normalized document graph is the application contract. Raw extractor output is adapted before retrieval, QA, or the UI consumes it. Activity panels and malformed visual labels are filtered at that boundary.
-
-## Features
-
-- Digital and scanned PDF processing with automatic page routing.
-- Native text, OCR text, vector regions, embedded images, and figure captions.
-- Page-scoped processing status with `ok`, `degraded`, and `failed` results; a failed page does not abort other pages.
-- Canonical pages, figures, captions, and relationships in a normalized document model.
-- Keyword and semantic retrieval with grounded offline answers.
-- Optional Gemini synthesis and visual reranking.
-- React/Vite document browser with cleaned page text and full-text reading view.
-- FastAPI upload, book, question, health, and media endpoints.
-- Florence-2 training and evaluation utilities retained under `scripts/`.
-
-## Technology Stack
-
-| Area | Technology | Current responsibility |
+| Layer | Code | Notes |
 | --- | --- | --- |
-| Web UI | React 18, Vite, `react-markdown` | Document browser, QA interface, cleaned text presentation |
-| API | FastAPI, Uvicorn, Pydantic | Upload, health, book, question, and media endpoints |
-| Native PDF | PyMuPDF | Embedded text, page blocks, vector drawings, and image regions |
-| Scanned PDF | PaddleOCR, Tesseract, OpenCV, Pillow | OCR text, coordinates, image analysis, and scanned visual extraction |
-| Visual model | Florence-2, Transformers, Torch, PEFT | Picture-region detection, training, inference, and evaluation |
-| Retrieval | BGE-large embeddings, Sentence Transformers, FAISS | Semantic page search and evidence ranking |
-| QA | Gemini API, offline extractive fallback | Optional synthesis and visual reranking; local fallback without an API key |
-| Data tooling | PyYAML, NumPy, SciPy, Hugging Face Datasets | Configuration, dataset construction, metrics, and training utilities |
+| Frontend | `frontend/src` | TypeScript, TanStack Query, lazy markdown/KaTeX, Vitest + Playwright |
+| API | `api/` | Auth, uploads, jobs, signed media, typed errors, metrics |
+| Processing | `src/pdf_processor.py`, `src/digital_pipeline.py`, `src/scanned_pipeline.py`, `src/captions.py` | Per-page routing; a failing page never aborts the book |
+| QA | `src/qa/` | Retrieval, reranking, "not in this book" detection, offline + Gemini answers |
+| Training | `scripts/`, `src/layout/` | Florence-2 layout fine-tuning ([docs/TRAINING_PIPELINE.md](docs/TRAINING_PIPELINE.md)) |
 
-## Document Processing Flow
+## Quick start (local development)
 
-```text
-PDF upload
-        |
-        v
-PageResult records (legacy compatibility)
-        |
-        v
-normalize_legacy_document(...)
-        |
-        +--> Page.raw_text and processing status/errors
-        +--> Figure entities with stable IDs
-        +--> Caption entities and explicit references
-        +--> Relationships such as caption_of and references
-        +--> Sanitized and deduplicated visual records
-        |
-        v
-NormalizedDocument JSON
-        |
-        +--> API response and React page browser
-        +--> Retrieval and QA
-        +--> Cached extraction output
+Requirements: Python 3.13, Node 24+, Tesseract (optional fallback OCR).
+
+```bash
+python -m venv .venv && . .venv/Scripts/activate         # Windows Git Bash; use .venv/bin/activate on Linux/macOS
+pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0
+pip install -r requirements/dev.txt
+cp .env.example .env                                       # set API_KEYS, MEDIA_SIGNING_SECRET
+python scripts/fetch_models.py qa                          # ~700 MB of QA/OCR models, once
+uvicorn api.main:app --port 8000                           # JOBS_MODE=thread: no separate worker needed
+
+cd frontend && npm ci && npm run dev                       # http://127.0.0.1:5173 (proxies /api to :8000)
 ```
 
-## Architecture Evolution
+Open the app, click **API key** and paste a key from `API_KEYS`, then upload a PDF.
 
-The project has deliberately evolved without rebuilding the working system:
+## Docker
 
-| Earlier state | Current state |
-| --- | --- |
-| Page-centric extractor records were consumed directly | Records pass through a normalized document adapter |
-| Figure IDs could be malformed or duplicated | IDs are sanitized, canonicalized, and deduplicated |
-| Generic figure ranking could return several nearby visuals | Explicit references such as `Figure 5.2` take priority |
-| Activity panels could appear as figures | Activity-only regions are filtered before UI and QA output |
-| Raw page text was shown with extraction artifacts | React cleans repeated lines, markers, and hard breaks |
-| Streamlit was an old interface | Removed; React + FastAPI is the only supported product runtime |
-| MinerU output existed as an external-parser artifact | Removed; the application owns its internal document model |
-
-## MinerU Status
-
-**MinerU is not used by the current product.** There is no MinerU runtime dependency, adapter, output directory, or API path in the cleaned repository. The current system uses its own PDF processing lanes and normalized document graph.
-
-MinerU-like capabilities are implemented through the project-owned combination of PyMuPDF, OCR, OpenCV, Florence-2, normalization, retrieval, and QA. This keeps the rest of the application independent from MinerU or any other external parser. If MinerU is evaluated again in the future, it should be integrated only as an optional adapter that produces the same normalized document contract.
-
-## Requirements
-
-- Python 3.13 is recommended for the Windows PaddleOCR runtime. Python 3.14 is not currently supported by the available PaddlePaddle wheels.
-- Node.js and npm for the frontend.
-- Tesseract OCR installed and available on PATH, or installed in the standard Windows location.
-- Enough disk space for the local embedding and Florence-2 model directories.
-
-## Setup
-
-Create and activate the project environment on Windows. Use a Python 3.13 interpreter for PaddleOCR:
-
-```powershell
-py -3.13 -m venv .venv313
-.\.venv313\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r .\requirements.txt
-python -m pip install -r .\requirements-api.txt
+```bash
+cp .env.example .env            # set API_KEYS and MEDIA_SIGNING_SECRET
+docker compose up --build       # api :8000, worker, frontend :5173
 ```
 
-PaddleOCR and PaddlePaddle are loaded before OCR inference, while Torch is loaded first to avoid conflicting Windows native DLLs. The OCR adapter disables PaddleX oneDNN by default because some PaddleOCR 3.x models fail in that backend on Windows.
+The API image is multi-stage, runs as a non-root user, uses CPU-only torch and bakes the QA/OCR models in.
+`api` and `worker` share the `data` volume (SQLite registry and queue), so no Redis is needed.
 
-### OCR fallback behavior
+## Configuration
 
-Scanned pages use PaddleOCR as the structured primary engine. The result includes text, word boxes, and confidence scores. A quality gate accepts PaddleOCR only when its score is sufficient; otherwise the complete Tesseract result is used. The two OCR outputs are not merged. OCR failures are recorded as degraded page results where possible instead of silently discarding the failure.
+Every setting is documented in [.env.example](.env.example). The important ones:
 
-### Extraction cache behavior
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AUTH_MODE` | `api_key` | `api_key`, `jwt`, or `none` (local only) |
+| `API_KEYS` | (empty) | `owner:key` pairs; `/readyz` fails if empty in `api_key` mode |
+| `MEDIA_SIGNING_SECRET` | random per process | Signs figure/PDF URLs; set it explicitly in production |
+| `MAX_UPLOAD_MB`, `MAX_PAGES` | `50`, `1500` | Upload limits (413 / 422) |
+| `JOBS_MODE` | `thread` | `huey` (separate worker), `thread` (single process), `immediate` (tests) |
+| `FLORENCE_MODE` | `disabled` | `base` uses Florence-2-base; `required` makes `/readyz` fail without fine-tuned weights |
+| `FLORENCE_HF_REPO`, `HF_TOKEN` | (empty) | Where the entrypoint downloads the fine-tuned adapter from |
+| `GEMINI_API_KEY` | (empty) | Optional; the app is complete without it |
+| `PORT` | `8000` | Same default in the Dockerfile, compose, Vite proxy and nginx |
 
-Extraction JSON and generated visual assets are stored under `data/`. A cache key includes the source file hash, extraction settings, and pipeline version. Re-uploading an unchanged PDF reuses the existing extraction result and does not rewrite the same JSON cache. A changed file, setting, or pipeline version invalidates the old result.
+## API
 
-Install frontend dependencies:
+All `/api` routes need `X-API-Key` (or `Authorization: Bearer <jwt>`). Errors are always
+`{"error": {"code", "message", "request_id"}}`.
 
-```powershell
-cd frontend
-npm install
-cd ..
+| Method | Path | Result |
+| --- | --- | --- |
+| POST | `/api/books` | `202 {book_id, job_id, status}`; 413 too large, 415 not a PDF, 422 too many pages |
+| GET | `/api/jobs/{job_id}` | status, progress 0..1, message, error |
+| GET | `/api/books`, `/api/books/{id}` | your books only (404 for anyone else's) |
+| POST | `/api/books/{id}/questions` | answer, extractive_answer, is_sufficient, confidence, mode, citations, figures |
+| GET | figure/PDF URLs from the responses | signed, expire after `MEDIA_URL_TTL_SECONDS` |
+| GET | `/healthz`, `/readyz`, `/metrics` | liveness, readiness (DB, storage, models, Florence, auth), Prometheus |
+
+## Security model
+
+- No static file serving: the old public `/media` mount is gone. Figures and PDFs are served only through
+  ownership-checked routes or HMAC-signed, expiring URLs. Raw extraction JSON is never served.
+- API keys are stored only as SHA-256 hashes and compared in constant time; JWT mode requires `sub` and `exp`.
+- Uploads are streamed with a size cap (also rejected early from `Content-Length`), checked for the `%PDF-` magic
+  bytes and a page limit, and stored as `uploads/<sha256>.pdf` (the original name lives only in the database).
+- Book and job IDs are random; lookups for another owner's resources return 404, not 403.
+- Rate limits on upload and ask (per credential, else per IP). Request IDs on every response and log line.
+
+## Quality evidence
+
+QA (real models, `make eval`, golden set of 67 questions over 7 books, thresholds tuned on a separate dev set):
+
+| Metric | Result | Target |
+| --- | --- | --- |
+| Retrieval recall@5 | 1.000 | >= 0.90 |
+| Unanswerable detection | 14/14 = 1.000 | >= 0.90 |
+| False refusals | 4/53 = 0.075 | <= 0.10 |
+| Answers that echo the question | 0 | 0 |
+| Answers with citations | 100% | 100% |
+| Median answer latency (CPU) | ~1.5-2.3 s | |
+
+Captions (`make eval-captions`): 88/88 correct on a labeled set of 88 figures from six digital chapters and a
+scanned sample; scanned pages are read by RapidOCR, not the Tesseract fallback.
+
+Code: `ruff check`/`ruff format` clean, `mypy --strict` clean on `api/` and the core QA modules, 86 Python tests,
+90% coverage on `api/` + `src/qa/`, 46 frontend unit tests, Playwright e2e with axe (0 violations).
+
+## Testing
+
+```bash
+make test           # Python unit + API tests (offline lexical QA backend, no model downloads)
+make cov            # with coverage, fails under 85%
+make lint typecheck
+make eval-ci        # QA eval on the committed fixture book (real models)
+make eval           # full golden set (needs cached books in data/extracted)
+make eval-captions  # caption precision (needs the local PDFs in data/uploads)
+cd frontend && npm run lint && npm run typecheck && npm test && npm run build && npm run test:e2e
 ```
 
-For dataset construction and Florence-2 training, install the separate training dependencies:
+## Deployment
 
-```powershell
-python -m pip install -r requirements-train.txt
-```
+- **Railway (API):** `railway.toml` builds `Dockerfile.api` and health-checks `/readyz`. Set `API_KEYS`,
+  `MEDIA_SIGNING_SECRET`, `CORS_ORIGINS`, attach a volume at `/app/data`. Use `JOBS_MODE=thread` on one service,
+  or add a worker service (`/entrypoint.sh worker`, `JOBS_MODE=huey`) on the same volume.
+- **Vercel / nginx (frontend):** build with `VITE_API_URL` pointing at the API, or serve behind nginx which proxies
+  `/api` to `api:8000` (see `frontend/nginx.conf`).
 
-Set the optional Gemini key for natural-language synthesis and visual reranking:
+## Licenses
 
-```powershell
-$env:GEMINI_API_KEY = "your-api-key"
-```
-
-## Run The Product
-
-Start the API from the repository root:
-
-```powershell
-\.venv313\Scripts\python.exe -m uvicorn api.main:app --reload --port 8000
-```
-
-In a second terminal, start the React frontend:
-
-```powershell
-cd frontend
-npm run dev
-```
-
-Open `http://localhost:5173`. The API health check is available at `http://127.0.0.1:8000/api/health`.
-
-## Run With Docker
-
-Docker Compose runs the API and React frontend together. The application data directory is mounted from the host, so uploaded PDFs, extracted JSON, page assets, and figure crops survive container rebuilds. Local model assets are mounted read-only from `model/`.
-
-Install Docker Desktop, then run from the repository root:
-
-```powershell
-docker compose up --build -d
-```
-
-Open `http://localhost:5173`. Check the API container with:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/health
-```
-
-Stop the containers without deleting persisted data:
-
-```powershell
-docker compose down
-```
-
-The Docker deployment is CPU-based. The first build may be large because the document pipeline includes Torch, Transformers, OCR, and embedding dependencies. GPU acceleration is not configured in the Compose file.
-
-## API Endpoints
-
-- `GET /api/health` checks service availability.
-- `POST /api/books/upload` uploads and processes a PDF.
-- `GET /api/books/{book_id}` returns the processed normalized book.
-- `POST /api/books/{book_id}/questions` answers a question using book evidence.
-- `/media/*` serves generated visual assets.
-
-## Tests And Builds
-
-Run backend tests:
-
-```powershell
-\.venv313\Scripts\python.exe -m pytest -q
-```
-
-Build the frontend:
-
-```powershell
-cd frontend
-npm run build
-```
-
-## Repository Structure
-
-```text
-api/                    FastAPI application
-configs/                Florence layout configuration
-data/
-  extracted/            Cached processed document JSON
-  images/               Generated figure crops
-  pages/                Generated page assets
-  training_data/        Dataset manifest and training images
-  uploads/              Uploaded PDFs
-docs/                   Dataset and training guides
-evaluation/             Evaluation output
-frontend/               React/Vite application
-        src/
-                api/                Frontend API client and connectivity helpers
-                main.jsx            Reading workspace UI
-                styles.css          Frontend presentation
-model/                  Local embedding and Florence model assets
-scripts/
-  dataset/              Dataset construction and validation
-  evaluation/           Model evaluation and visualization
-  inference/             Figure inference utilities
-  training/              Florence-2 training utilities
-src/                    Document processing, normalization, retrieval, and QA
-tests/                  Backend regression tests
-```
-
-Generated caches, local environments, model weights, archives, and frontend dependencies are ignored and are not part of the runtime source tree.
-
-## Deploy To Railway And Vercel
-
-Deploy the API as a Railway service from the repository root. Railway uses `railway.toml` and `Dockerfile.api` automatically.
-
-1. Create a Railway project, choose **Deploy from GitHub repo**, and select this repository.
-2. Add a Railway volume mounted at `/app/data`. This is required so uploads, extracted documents, and generated images survive deploys and restarts.
-3. Add `CORS_ORIGINS` with the Vercel production URL (for example, `https://your-project.vercel.app`). Add preview URLs separated by commas if you want Vercel previews to call the API.
-4. Optionally add `GEMINI_API_KEY` for Gemini-generated answers. Without it, the app uses its built-in offline fallback.
-5. Generate a Railway public domain and confirm that `https://YOUR-RAILWAY-DOMAIN/api/health` returns `{"status":"ok","service":"smart-book-reader"}`.
-
-Deploy the frontend as a Vercel project with **Root Directory** set to `frontend`.
-
-1. Import the same GitHub repository into Vercel and set the root directory to `frontend`.
-2. Add the `VITE_API_URL` environment variable with the full Railway public URL, without a trailing slash (for example, `https://YOUR-RAILWAY-DOMAIN`). Add it to Production and Preview if applicable.
-3. Deploy, copy the Vercel URL, and update Railway's `CORS_ORIGINS` value with that exact URL. Redeploy the Railway service after changing the variable.
-
-Vercel environment variables are embedded at build time. Redeploy the frontend whenever `VITE_API_URL` changes. Do not place secrets, including `GEMINI_API_KEY`, in Vercel variables; they belong only in Railway.
+All new dependencies are MIT/Apache/BSD, except: **PyMuPDF is AGPL-3.0** (already used before this work) and
+`@axe-core/playwright` (dev-only) is MPL-2.0. If AGPL is a problem for a hosted deployment, the permissive
+replacement is `pypdfium2` (rendering) + `pdfplumber` (text/boxes); see [PLAN.md](PLAN.md).

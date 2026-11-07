@@ -40,7 +40,7 @@ def _load_florence():
     if _florence_model is not None:
         return _florence_available, _florence_status
 
-    mode = os.environ.get("FLORENCE_MODE", "base").strip().lower()
+    mode = os.environ.get("FLORENCE_MODE", "disabled").strip().lower()
     adapter = _resolve_adapter_dir()
     if mode == "disabled":
         return False, "Florence-2 disabled (FLORENCE_MODE=disabled)"
