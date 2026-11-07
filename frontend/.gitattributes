@@ -1,0 +1,5 @@
+# Prettier enforces LF; keep LF in the working tree on every OS (core.autocrlf would otherwise convert to CRLF).
+* text=auto eol=lf
+*.png binary
+*.pdf binary
+*.woff2 binary

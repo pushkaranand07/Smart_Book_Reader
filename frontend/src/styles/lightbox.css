@@ -1,0 +1,70 @@
+/* Loaded with the lazy FigureLightbox chunk. */
+
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 5vh 5vw;
+  background: rgba(23, 34, 31, 0.88);
+}
+
+.image-lightbox__dialog {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  max-width: 92vw;
+}
+
+.image-lightbox__dialog:focus {
+  outline: none;
+}
+
+.image-lightbox img {
+  max-width: 92vw;
+  max-height: 78vh;
+  object-fit: contain;
+  background: #fff;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+}
+
+.image-lightbox__caption {
+  max-width: 760px;
+  color: #fff;
+  text-align: center;
+}
+
+.image-lightbox__caption h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.image-lightbox__caption p {
+  margin: 4px 0 0;
+  color: #dfe7e1;
+  font-size: 14px;
+}
+
+.image-lightbox__page {
+  color: #dfe7e1;
+  font: 12px var(--font-mono);
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 22px;
+  right: 28px;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: transparent;
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.lightbox-close:focus-visible {
+  outline-color: #fff;
+}

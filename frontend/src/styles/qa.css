@@ -1,0 +1,242 @@
+.qa-section,
+.text-section {
+  margin-bottom: 70px;
+  border-top: 1px solid var(--color-line);
+}
+
+.qa-heading {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.qa-heading > span {
+  color: var(--color-muted);
+  font: 11px var(--font-mono);
+}
+
+/* Question form */
+
+.question-form {
+  display: flex;
+  max-width: 850px;
+  margin: 27px 0 32px;
+}
+
+.question-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-line-strong);
+  border-right: 0;
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.question-form input:focus {
+  border-color: var(--color-accent-strong);
+}
+
+.question-form button {
+  border: 0;
+  padding: 0 20px;
+  background: var(--color-accent-strong);
+  color: #fff;
+}
+
+.question-form button:disabled {
+  opacity: 0.55;
+}
+
+.question-form button span {
+  margin-left: 16px;
+}
+
+/* Answer */
+
+.answer-layout {
+  display: grid;
+  grid-template-columns: 1.4fr 0.9fr;
+  gap: 28px;
+}
+
+.answer-main,
+.answer-figures {
+  padding: 24px;
+  border: 1px solid var(--color-panel-border);
+  background: var(--color-surface);
+}
+
+.answer-figures {
+  align-self: start;
+}
+
+.answer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.answer-meta .copy-label {
+  margin: 0 auto 0 0;
+}
+
+.mode-badge,
+.answer-confidence {
+  padding: 4px 8px;
+  font: 10px var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mode-badge--offline {
+  background: var(--color-green-bg);
+  color: var(--color-green-text);
+}
+
+.mode-badge--gemini {
+  background: var(--color-amber-bg);
+  color: var(--color-amber-text);
+}
+
+.answer-confidence {
+  color: var(--color-muted);
+}
+
+.answer-text {
+  color: var(--color-text);
+  line-height: 1.7;
+}
+
+.answer-text--plain {
+  white-space: pre-wrap;
+}
+
+.not-covered {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-amber);
+  border-left-width: 4px;
+  background: var(--color-amber-bg);
+  color: var(--color-amber-text);
+}
+
+.not-covered strong {
+  display: block;
+  font-size: 15px;
+}
+
+.not-covered p {
+  margin: 6px 0 0;
+  font-size: 14px;
+}
+
+.extractive {
+  margin-top: 22px;
+}
+
+.extractive__quote {
+  margin: 0;
+  padding: 12px 16px;
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-quote);
+  color: var(--color-body);
+  line-height: 1.6;
+}
+
+/* Citations */
+
+.citations {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid #d2dbd3;
+}
+
+.citations__list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.citation__button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-green-border);
+  background: var(--color-green-chip);
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.citation__button:hover {
+  border-color: var(--color-green);
+}
+
+.citation__page {
+  color: var(--color-green-text);
+  font: 11px var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.citation__section {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.citation__snippet {
+  color: var(--color-body);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.citation__figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip-button {
+  border: 1px solid var(--color-green-border);
+  padding: 5px 9px;
+  background: var(--color-surface);
+  color: var(--color-green-text);
+  font: 11px var(--font-mono);
+}
+
+.chip-button:hover {
+  border-color: var(--color-green);
+}
+
+@media (max-width: 800px) {
+  .answer-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .qa-heading > span {
+    display: none;
+  }
+}
+
+@media (max-width: 500px) {
+  .question-form {
+    display: block;
+  }
+
+  .question-form input {
+    width: 100%;
+    border-right: 1px solid var(--color-line-strong);
+  }
+
+  .question-form button {
+    width: 100%;
+    height: 46px;
+    margin-top: 8px;
+  }
+}
