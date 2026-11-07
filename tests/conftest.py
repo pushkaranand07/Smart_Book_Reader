@@ -10,6 +10,8 @@ import pytest
 
 os.environ.setdefault("QA_BACKEND", "lexical")
 os.environ.setdefault("FLORENCE_MODE", "disabled")
+# Never read the developer's real .env in tests (it may hold paid API keys).
+os.environ["APP_ENV_FILE"] = os.path.join(os.path.dirname(__file__), "no-such.env")
 os.environ.pop("GEMINI_API_KEY", None)
 os.environ.pop("GOOGLE_API_KEY", None)
 

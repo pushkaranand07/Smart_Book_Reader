@@ -48,3 +48,8 @@ docs/PA-OH-1.md
 
 # Claude Code local state (agent worktrees)
 .claude/
+
+# Local book registry (SQLite) and job queue
+data/registry.db*
+data/queue.db*
+data/.cache/

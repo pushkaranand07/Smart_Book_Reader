@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from functools import lru_cache
 from pathlib import Path
@@ -14,7 +15,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # APP_ENV_FILE lets tests (and alternative deployments) point away from the developer's local .env.
+    model_config = SettingsConfigDict(
+        env_file=os.environ.get("APP_ENV_FILE", ".env"), env_file_encoding="utf-8", extra="ignore"
+    )
 
     environment: Literal["development", "production", "test"] = "development"
     port: int = 8000
