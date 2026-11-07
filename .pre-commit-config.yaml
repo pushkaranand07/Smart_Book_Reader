@@ -1,0 +1,36 @@
+# pip install -r requirements/dev.txt && pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (api, src/qa, core)
+        entry: python -m mypy
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: prettier
+        name: prettier (frontend)
+        entry: npm --prefix frontend run -s format:check
+        language: system
+        pass_filenames: false
+        files: ^frontend/
+      - id: eslint
+        name: eslint (frontend)
+        entry: npm --prefix frontend run -s lint
+        language: system
+        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx|js|mjs)$
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: ^(frontend/package-lock.json|tests/fixtures/)
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
