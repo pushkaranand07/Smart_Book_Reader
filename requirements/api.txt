@@ -23,7 +23,7 @@ tenacity==9.1.4
 PyMuPDF==1.27.2.3
 pillow==11.3.0
 numpy==2.3.2
-opencv-python-headless==4.10.0
+opencv-python-headless==4.10.0.84
 pytesseract==0.3.13
 rapidocr==3.10.0
 onnxruntime==1.31.1
