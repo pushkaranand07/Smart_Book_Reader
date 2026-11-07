@@ -250,7 +250,8 @@ def normalize_legacy_page_result(document: NormalizedDocument, page_result: Dict
             merged["caption"] = new_caption
 
     for idx, raw_fig in enumerate(deduped_figures.values(), start=1):
-        raw_caption = str(raw_fig.get("caption") or raw_fig.get("figure_label") or "")
+        # Only a real caption becomes a Caption entity; labels like "Page 3 image 1" are not captions.
+        raw_caption = str(raw_fig.get("caption") or "").strip()
         raw_label = str(raw_fig.get("figure_label") or "")
         normalized_fig_id = _normalize_legacy_figure_id(raw_fig)
         if not normalized_fig_id:
@@ -265,7 +266,7 @@ def normalize_legacy_page_result(document: NormalizedDocument, page_result: Dict
             bbox=tuple(raw_fig.get("bounding_box", (0.0, 0.0, 0.0, 0.0))),
             caption_id=None,
             image_source=raw_fig.get("image_path"),
-            extracted_text=raw_caption,
+            extracted_text=raw_caption or raw_label or None,
             labels_inside=list(raw_fig.get("labels_inside", []) or []),
             surrounding_context=raw_fig.get("surrounding_context") or raw_fig.get("context"),
             reading_order_index=idx,
@@ -385,7 +386,7 @@ def normalized_document_to_dict(document: NormalizedDocument) -> Dict[str, Any]:
         figures_out = []
         seen_ids = set()
         for fig in page.figures:
-            caption = next((c.text for c in page.captions if c.attached_to == fig.id), fig.extracted_text or "")
+            caption = next((c.text for c in page.captions if c.attached_to == fig.id), None)
             explicit_ref = next((c.explicit_reference for c in page.captions if c.attached_to == fig.id and c.explicit_reference), None)
             fig_id = explicit_ref or fig.id.split(":figure:")[-1] if fig.id.startswith("doc:") else fig.id
             fig_label = f"Figure {explicit_ref}" if explicit_ref else (fig.extracted_text or caption or fig.id)

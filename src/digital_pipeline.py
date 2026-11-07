@@ -12,21 +12,19 @@ Handles:
 """
 
 import io
+import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pymupdf as fitz
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
+from src.captions import FigureNamer, nearest_caption, parse_caption, text_without_symbol_fonts
 from src.storage import IMAGES_DIR
 
-CAPTION_PATTERN = re.compile(
-    r'(?:^|\n)\s*(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?|Picture\s*[-–:]?|Diagram\s*(?:of)?|Map\s*(?:of)?|Graph\s*[-–:]?|Chart|Sketch\s*(?:of)?|Photo\s*[-–:]?|Activity\s*[0-9]*|Table\s*[0-9]*|Exhibit)\s*'
-    r'([^\n\r]{2,80})',
-    re.IGNORECASE
-)
-
+logger = logging.getLogger(__name__)
+_IMAGE_ERRORS = (ValueError, OSError, RuntimeError, UnidentifiedImageError)
 
 def is_qr_code(pil_img: Image.Image, page_num: int) -> bool:
     """Identify square chapter QR codes or barcodes on page 1 / book headers."""
@@ -39,7 +37,8 @@ def is_qr_code(pil_img: Image.Image, page_num: int) -> bool:
 
 def parse_subfigures_from_caption(caption_text: str) -> List[Tuple[str, str]]:
     """Parse subfigure tags and descriptions from a caption string."""
-    matches = re.findall(r'\(([a-zA-Z0-9]+)\)\s*([^()]+)', caption_text)
+    # Subfigure tags are single letters or small roman numerals: "(a)", "(b)", "(ii)". Not "(aq)" or "(s)" states.
+    matches = re.findall(r'(?<![A-Za-z0-9+\-])\(([a-h]|i{1,3}|iv)\)\s*([^()]+)', caption_text)
     subfigs: List[Tuple[str, str]] = []
     if matches:
         for tag, text in matches:
@@ -159,7 +158,8 @@ class DigitalPipeline:
                     "ext": base_img.get("ext", "png"),
                     "raw_bytes": image_bytes,
                 })
-            except Exception:
+            except _IMAGE_ERRORS as exc:
+                logger.debug("skipping unreadable embedded image xref=%s on page %s: %s", xref, page_number, exc)
                 continue
 
         return valid_images
@@ -182,57 +182,41 @@ class DigitalPipeline:
                 if r.y0 <= 15 or r.y1 >= page_rect.height - 15:
                     continue
                 valid_drawings.append(r)
-        except Exception:
-            pass
+        except (RuntimeError, ValueError) as exc:
+            logger.warning("vector drawing extraction failed: %s", exc)
         return valid_drawings
 
-    def _find_nearest_text_label(self, bbox: fitz.Rect, blocks: List[Any], clean_text_fn) -> str:
-        """Find the nearest text block (heading, paragraph, or label) directly above or below an image."""
-        best_dist = 9999.0
-        best_text = ""
-        for b in blocks:
-            if b[6] != 0:
-                continue
-            txt = clean_text_fn(b[4])
-            if not txt or len(txt) > 250:
-                continue
-            b_rect = fitz.Rect(b[:4])
-            if b_rect.y1 <= bbox.y0:
-                dist = bbox.y0 - b_rect.y1
-            elif b_rect.y0 >= bbox.y1:
-                dist = b_rect.y0 - bbox.y1
-            else:
-                dist = abs(b_rect.x0 - bbox.x0)
-            if dist < best_dist and dist < 140.0:
-                best_dist = dist
-                best_text = txt
-        return best_text
+    def _detect_captions(self, page: fitz.Page) -> List[Dict[str, Any]]:
+        """Find real captions: text blocks that START with "Fig./Figure/Table N(.N)".
 
-    def _detect_captions(self, blocks: List[Any], clean_text_fn) -> List[Dict[str, Any]]:
-        """Detect figure, diagram, and visual title captions in digital text blocks."""
+        Spans set in symbol fonts (Wingdings bullets) are dropped before matching, and body text that merely
+        mentions a figure is ignored.
+        """
         captions: List[Dict[str, Any]] = []
-        for b in blocks:
-            if b[6] != 0:  # text blocks only
+        try:
+            blocks = page.get_text("dict").get("blocks", [])
+        except (RuntimeError, ValueError) as exc:
+            logger.warning("caption detection failed: %s", exc)
+            return captions
+        for block in blocks:
+            if block.get("type") != 0:
                 continue
-            raw_text = b[4].strip()
-            cleaned = clean_text_fn(raw_text)
-
-            if len(cleaned) <= 380:
-                match = CAPTION_PATTERN.search(raw_text) or CAPTION_PATTERN.search(cleaned)
-                if match:
-                    fig_id = match.group(1).strip()
-                    fig_id = re.sub(r'^[-–:\s]+', '', fig_id).strip()
-                    if not fig_id:
-                        fig_id = f"fig_{len(captions) + 1}"
-                    matched_prefix = match.group(0).strip()
-                    captions.append({
-                        "fig_id": fig_id,
-                        "prefix": matched_prefix,
-                        "bbox": fitz.Rect(b[:4]),
-                        "text": cleaned,
-                        "raw_block": b,
-                        "matched": True,
-                    })
+            text = text_without_symbol_fonts(block, caption_mode=True)
+            if not text or len(text) > 380:
+                continue
+            match = parse_caption(text)
+            if match is None:
+                continue
+            fig_id = f"{match.number}.{match.sub}" if match.sub else match.number
+            label_text = f"{match.label} {match.text}" if match.text else match.label
+            captions.append({
+                "fig_id": fig_id,
+                "prefix": match.label,
+                "bbox": fitz.Rect(block["bbox"]),
+                "text": label_text,
+                "caption": match.text,
+                "match": match,
+            })
         return captions
 
     def _detect_subfig_labels(self, blocks: List[Any]) -> List[Dict[str, Any]]:
@@ -320,7 +304,8 @@ class DigitalPipeline:
 
         valid_images = self._extract_embedded_images(doc, page, page_rect, page_number, is_meaningful_fn)
         valid_drawings = self._extract_vector_drawings(page, page_rect)
-        captions = self._detect_captions(blocks, clean_text_fn)
+        captions = self._detect_captions(page)
+        namer = FigureNamer(IMAGES_DIR, pdf_stem, page_number)
         subfig_labels = self._detect_subfig_labels(blocks)
 
         figure_refs_found: Set[str] = set()
@@ -395,21 +380,14 @@ class DigitalPipeline:
             # Extract surrounding paragraph context
             surrounding_ctx = self._extract_nearby_context(full_page_text, f"Fig {c_id}")
 
-            clean_caption_desc = re.sub(
-                r'^(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?|Table|Tab\.?|Chart|Activity|Diagram|Exhibit)\s*[0-9.]+\s*[:.\-]?\s*',
-                '',
-                c_text,
-                flags=re.IGNORECASE,
-            ).strip()
+            clean_caption_desc = cap["caption"]
 
             # Render complete high-DPI figure crop with dynamic padding and obstacle avoidance
             full_crop_img = self.crop_page_region(
                 page, compound_bbox, is_meaningful_fn, obstacles=body_obstacles
             )
             if full_crop_img:
-                safe_fig_id = c_id.replace('.', '_')
-                out_filename = f"{pdf_stem}_p{page_number}_fig{safe_fig_id}.png"
-                out_path = IMAGES_DIR / out_filename
+                out_path, out_filename = namer.next_path()
                 full_crop_img.save(str(out_path))
                 saved_image_paths.append(str(out_path))
 
@@ -425,9 +403,9 @@ class DigitalPipeline:
 
                 fig_meta = figure_factory_fn(
                     figure_id=c_id,
-                    figure_label=f"Figure {c_id}",
+                    figure_label=cap["prefix"],
                     subfigure_id=None,
-                    caption=clean_caption_desc or c_text,
+                    caption=clean_caption_desc,
                     page_number=page_number,
                     image_path=str(out_path),
                     image_filename=out_filename,
@@ -439,7 +417,7 @@ class DigitalPipeline:
                     associated_keywords=concept_keywords,
                     labels_inside=labels_inside,
                     in_text_citations=[],
-                    context=f"Page {page_number} • Figure {c_id}: {clean_caption_desc}",
+                    context=f"Page {page_number} • {cap['prefix']}: {clean_caption_desc or ''}",
                     surrounding_context=surrounding_ctx,
                 )
                 extracted_figures.append(fig_meta)
@@ -465,9 +443,7 @@ class DigitalPipeline:
 
                     sub_crop = self.crop_page_region(page, sub_box, is_meaningful_fn, obstacles=body_obstacles)
                     if sub_crop:
-                        safe_sub_id = f"{c_id}_{sub_tag}".replace('.', '_')
-                        sub_out_filename = f"{pdf_stem}_p{page_number}_fig{safe_sub_id}.png"
-                        sub_out_path = IMAGES_DIR / sub_out_filename
+                        sub_out_path, sub_out_filename = namer.next_path()
                         sub_crop.save(str(sub_out_path))
                         saved_image_paths.append(str(sub_out_path))
 
@@ -508,20 +484,24 @@ class DigitalPipeline:
             pil_img = v_img["pil_img"]
             img_idx = v_img["img_idx"]
 
-            # Locate nearest heading or paragraph label
-            nearest_label = self._find_nearest_text_label(r, blocks, clean_text_fn)
-            label_text = nearest_label if nearest_label else f"Page {page_number} Visual {img_idx}"
+            # Only a real caption next to the image counts; never borrow a nearby paragraph.
+            caption_match = nearest_caption(
+                (r.x0, r.y0, r.x1, r.y1),
+                [((c["bbox"].x0, c["bbox"].y0, c["bbox"].x1, c["bbox"].y1), c["match"]) for c in captions],
+                max_gap=40.0,
+            )
+            label_text = caption_match.label if caption_match else f"Page {page_number} image {img_idx}"
+            caption_text = caption_match.text if caption_match else None
 
-            out_filename = f"{pdf_stem}_p{page_number}_img_{img_idx}.png"
-            out_path = IMAGES_DIR / out_filename
+            out_path, out_filename = namer.next_path()
             pil_img.save(str(out_path))
             saved_image_paths.append(str(out_path))
 
             fig_meta = figure_factory_fn(
-                figure_id=f"p{page_number}_img{img_idx}",
+                figure_id=caption_match.number if caption_match else f"p{page_number}_img{img_idx}",
                 figure_label=label_text[:60],
                 subfigure_id=None,
-                caption=label_text,
+                caption=caption_text,
                 page_number=page_number,
                 image_path=str(out_path),
                 image_filename=out_filename,
@@ -530,11 +510,11 @@ class DigitalPipeline:
                 width=pil_img.width,
                 height=pil_img.height,
                 confidence=0.85,
-                associated_keywords=extract_terms_fn(f"{label_text} {full_page_text[:300]}"),
+                associated_keywords=extract_terms_fn(f"{caption_text or ''} {full_page_text[:300]}"),
                 labels_inside=[],
                 in_text_citations=[],
-                context=f"Page {page_number} • Visual: {label_text}",
-                surrounding_context=self._extract_nearby_context(full_page_text, label_text[:30]) if label_text else full_page_text[:300],
+                context=f"Page {page_number} • Visual: {caption_text or label_text}",
+                surrounding_context=full_page_text[:300],
             )
             extracted_figures.append(fig_meta)
             claimed_rects.append(r)

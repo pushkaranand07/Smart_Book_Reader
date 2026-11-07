@@ -3,7 +3,7 @@
 Specialized exclusively for scanned image pages, photographed documents, and OCR.
 Handles:
 - High-DPI page rendering to PIL Image
-- PaddleOCR text extraction with Tesseract fallback
+- RapidOCR (or PaddleOCR) text extraction with Tesseract fallback
 - Optical caption boundary localization
 - OpenCV morphological contour & visual diagram extraction
 - Scanned subfigure isolation
@@ -20,9 +20,11 @@ import numpy as np
 from PIL import Image
 import pytesseract
 
-from src.ocr_engine import ocr_image_with_metadata
-
+from src.captions import CaptionMatch, FigureNamer, clean_caption_text, nearest_caption, parse_caption
+from src.ocr_engine import OCRUnavailable, ocr_image_with_metadata
 from src.storage import IMAGES_DIR
+
+_TESSERACT_ERRORS = (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, OSError, RuntimeError)
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +73,10 @@ class ScannedPipeline:
                 if primary_quality >= 0.70 and primary["text"].strip():
                     ocr_duration = round(time.perf_counter() - ocr_start, 2)
                     ocr_data = self._primary_ocr_to_tesseract_data(primary)
-                    note = f"PaddleOCR accepted (quality {primary_quality:.2f}, {ocr_duration}s)"
+                    engine = primary.get("engine", "PaddleOCR")
+                    note = f"{engine} accepted (quality {primary_quality:.2f}, {ocr_duration}s)"
                     return primary["text"], ocr_duration, ocr_data, note
-            except Exception as exc:
+            except (OCRUnavailable, RuntimeError, ValueError, OSError) as exc:
                 logger.warning("Primary OCR failed; trying Tesseract: %s", exc)
 
         if not self.tesseract_ok:
@@ -101,7 +104,7 @@ class ScannedPipeline:
                 note = "Scanned/Image page with no readable text detected by OCR"
 
             return ocr_text, ocr_duration, ocr_data, note
-        except Exception as e:
+        except _TESSERACT_ERRORS as e:
             ocr_duration = round(time.perf_counter() - ocr_start, 2)
             return "", ocr_duration, None, f"OCR Error: {e}"
 
@@ -250,6 +253,16 @@ class ScannedPipeline:
         extracted_figures: List[Any] = []
         figure_refs_found: Set[str] = set()
         claimed_boxes: List[Tuple[int, int, int, int]] = []
+        namer = FigureNamer(IMAGES_DIR, pdf_stem, page_number)
+        caption_lines: List[Tuple[Tuple[float, float, float, float], CaptionMatch]] = []
+        for line in line_list:
+            parsed = parse_caption(line['text'])
+            if parsed is not None:
+                caption_lines.append((tuple(line['box']), parsed))
+
+        def caption_near(box: Tuple[float, float, float, float]) -> Optional[CaptionMatch]:
+            # Scanned pages are rendered at ~150 dpi, so 90 px is roughly 0.6 inch.
+            return nearest_caption(box, caption_lines, max_gap=90.0)
 
         # 1. Caption-linked Scanned Figure Extraction
         for idx, l in enumerate(line_list):
@@ -261,19 +274,36 @@ class ScannedPipeline:
             fig_id = m.group(1)
             figure_refs_found.add(fig_id)
 
-            is_caption_start = bool(re.search(r'^\s*(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?)\s*[0-9]+', txt))
-            if not is_caption_start and len(txt) < 80 and ('fig' in txt.lower() or 'figure' in txt.lower()):
-                is_caption_start = True
+            # A body sentence that merely mentions "Fig. 12.1" is a reference, not a caption.
+            caption_match = parse_caption(txt)
+            is_caption_start = caption_match is not None
+            if not is_caption_start:
+                continue
+            # "...as shown in / Fig. 12.2. Why do..." continues the sentence on the line above: not a caption.
+            above = [
+                p for p in line_list[:idx]
+                if abs(p['box'][0] - l['box'][0]) <= 40 and -12 <= l['box'][1] - p['box'][3] <= 25
+            ]
+            if above and not re.search(r'[.!?:)]\s*$', above[-1]['text']):
+                continue
+            fig_id = f"{caption_match.number}.{caption_match.sub}" if caption_match.sub else caption_match.number
 
             cap_box = list(l['box'])
             full_cap_text = txt
 
             if is_caption_start:
-                for next_idx in range(idx + 1, min(idx + 4, len(line_list))):
+                taken = 0
+                for next_idx in range(idx + 1, min(idx + 10, len(line_list))):
                     next_l = line_list[next_idx]
-                    if 0 <= next_l['box'][1] - cap_box[3] <= 35 and abs(next_l['box'][0] - cap_box[0]) <= 250:
-                        if not re.search(r'^(?:Fig|Activity|[0-9]+\.[0-9]+)', next_l['text']):
+                    if taken >= 3:
+                        break
+                    # OCR boxes overlap by a few pixels; the caption column must line up (not the next column).
+                    if -12 <= next_l['box'][1] - cap_box[3] <= 35 and abs(next_l['box'][0] - cap_box[0]) <= 40:
+                        if len(next_l['text']) < 90 and not re.search(
+                            r'^(?:Fig|Activity|Table|[0-9]+\.[0-9]+)', next_l['text']
+                        ):
                             full_cap_text += ' ' + next_l['text']
+                            taken += 1
                             cap_box[0] = min(cap_box[0], next_l['box'][0])
                             cap_box[2] = max(cap_box[2], next_l['box'][2])
                             cap_box[3] = max(cap_box[3], next_l['box'][3])
@@ -292,19 +322,16 @@ class ScannedPipeline:
                 pil_crop = Image.fromarray(crop)
 
                 if is_meaningful_fn(pil_crop):
-                    safe_fig_id = fig_id.replace('.', '_')
-                    out_filename = f"{pdf_stem}_p{page_number}_fig{safe_fig_id}.png"
-                    out_path = IMAGES_DIR / out_filename
+                    out_path, out_filename = namer.next_path()
                     pil_crop.save(str(out_path))
                     saved_image_paths.append(str(out_path))
 
-                    clean_caption = re.sub(r'^(?:Fig(?:ure|\.)?|FIG(?:URE|\.)?)\s*[0-9.]+\s*[:.\-]?\s*', '', full_cap_text).strip()
-                    if not clean_caption:
-                        clean_caption = full_cap_text
+                    full_match = parse_caption(full_cap_text)
+                    clean_caption = full_match.text if full_match else clean_caption_text(full_cap_text)
 
                     fig_meta = figure_factory_fn(
                         figure_id=fig_id,
-                        figure_label=f"Figure {fig_id}",
+                        figure_label=caption_match.label,
                         subfigure_id=None,
                         caption=clean_caption,
                         page_number=page_number,
@@ -315,8 +342,8 @@ class ScannedPipeline:
                         width=pil_crop.width,
                         height=pil_crop.height,
                         confidence=0.95,
-                        associated_keywords=extract_terms_fn(f"{full_cap_text} {clean_caption}"),
-                        context=f"Page {page_number} • Figure {fig_id}: {clean_caption}",
+                        associated_keywords=extract_terms_fn(f"{full_cap_text} {clean_caption or ''}"),
+                        context=f"Page {page_number} • {caption_match.label}: {clean_caption or ''}",
                     )
                     extracted_figures.append(fig_meta)
 
@@ -335,8 +362,7 @@ class ScannedPipeline:
                             sub_crop = img_np[sbox[1]:sbox[3], sbox[0]:sbox[2]]
                             sub_pil = Image.fromarray(sub_crop)
                             if is_meaningful_fn(sub_pil):
-                                sub_out_fn = f"{pdf_stem}_p{page_number}_fig{safe_fig_id}_{sub_tag}.png"
-                                sub_out_p = IMAGES_DIR / sub_out_fn
+                                sub_out_p, sub_out_fn = namer.next_path()
                                 sub_pil.save(str(sub_out_p))
                                 saved_image_paths.append(str(sub_out_p))
 
@@ -383,23 +409,17 @@ class ScannedPipeline:
 
                     claimed_boxes.append((yx0, yy0, yx1, yy1))
                     y_idx = len(extracted_figures) + 1
-                    out_filename = f"{pdf_stem}_p{page_number}_florence_fig_{y_idx}.png"
-                    out_path = IMAGES_DIR / out_filename
+                    out_path, out_filename = namer.next_path()
                     crop_pil.save(str(out_path))
                     saved_image_paths.append(str(out_path))
 
-                    florence_label = (yr.get("label") or "").strip()
-                    nearby_lines = [
-                        l['text'] for l in line_list
-                        if abs(l['box'][1] - yy0) <= 200 or abs(l['box'][3] - yy1) <= 200
-                    ]
-                    desc_text = florence_label if florence_label else (" ".join(nearby_lines[:2]) if nearby_lines else f"Page {page_number} Visual")
-                    fig_label = f"Figure ({florence_label[:45]})" if florence_label else f"Page {page_number} Visual"
+                    near = caption_near((yx0, yy0, yx1, yy1))
+                    fig_label = near.label if near else f"Page {page_number} visual {y_idx}"
                     fig_meta = figure_factory_fn(
-                        figure_id=f"florence_{page_number}_{y_idx}",
+                        figure_id=near.number if near else f"florence_{page_number}_{y_idx}",
                         figure_label=fig_label,
                         subfigure_id=None,
-                        caption=desc_text,
+                        caption=near.text if near else None,
                         page_number=page_number,
                         image_path=str(out_path),
                         image_filename=out_filename,
@@ -408,13 +428,12 @@ class ScannedPipeline:
                         width=crop_pil.width,
                         height=crop_pil.height,
                         confidence=yr.get("confidence", 0.92),
-                        associated_keywords=extract_terms_fn(f"{desc_text} {florence_label}"),
-                        context=f"Page {page_number} • Visual: {desc_text}",
+                        associated_keywords=extract_terms_fn(f"{(near.text if near else '')} {yr.get('label') or ''}"),
+                        context=f"Page {page_number} • Visual: {(near.text if near else fig_label)}",
                     )
                     extracted_figures.append(fig_meta)
-            except Exception:
-                logger.exception("Florence scanned-region detection failed on page %s", page_number)
-                pass
+            except (RuntimeError, ValueError, OSError) as exc:
+                logger.error("Florence scanned-region detection failed on page %s: %s", page_number, exc)
 
         # 3. Standalone Visual Diagram & Activity Detection (OpenCV Contours)
         try:
@@ -464,33 +483,18 @@ class ScannedPipeline:
                 if not is_meaningful_fn(crop_pil):
                     continue
 
-                nearby_lines = [
-                    l['text'] for l in line_list
-                    if abs(l['box'][1] - cy) <= 180 or abs(l['box'][3] - (cy + ch)) <= 180
-                ]
-                diag_label_text = ""
-                for nl in nearby_lines:
-                    if any(k in nl.lower() for k in ['activity', 'rule', 'thumb', 'left-hand', 'corkscrew', 'solenoid', 'circuit', 'magnet']):
-                        diag_label_text = nl
-                        break
-                if not diag_label_text and nearby_lines:
-                    diag_label_text = nearby_lines[0]
-
-                if re.search(r'\.pdf|copilot|watermark', diag_label_text, re.IGNORECASE):
-                    diag_label_text = f"Page {page_number} Visual Diagram"
-
+                near = caption_near((cx, cy, cx + cw, cy + ch))
                 claimed_boxes.append((cx, cy, cx + cw, cy + ch))
-                out_filename = f"{pdf_stem}_p{page_number}_diagram_{diag_idx}.png"
-                out_path = IMAGES_DIR / out_filename
+                out_path, out_filename = namer.next_path()
                 crop_pil.save(str(out_path))
                 saved_image_paths.append(str(out_path))
 
-                desc_text = diag_label_text or f"Page {page_number} Visual Diagram"
+                diag_label = near.label if near else f"Page {page_number} diagram {diag_idx}"
                 diag_meta = figure_factory_fn(
-                    figure_id=f"diag_{page_number}_{diag_idx}",
-                    figure_label=f"Page {page_number} Diagram",
+                    figure_id=near.number if near else f"diag_{page_number}_{diag_idx}",
+                    figure_label=diag_label,
                     subfigure_id=None,
-                    caption=desc_text,
+                    caption=near.text if near else None,
                     page_number=page_number,
                     image_path=str(out_path),
                     image_filename=out_filename,
@@ -499,14 +503,13 @@ class ScannedPipeline:
                     width=crop_pil.width,
                     height=crop_pil.height,
                     confidence=0.88,
-                    associated_keywords=extract_terms_fn(desc_text),
-                    context=f"Page {page_number} • Diagram: {desc_text}",
+                    associated_keywords=extract_terms_fn(near.text if near and near.text else ""),
+                    context=f"Page {page_number} • Diagram: {(near.text if near else diag_label)}",
                 )
                 extracted_figures.append(diag_meta)
                 diag_idx += 1
-        except Exception:
-            logger.exception("OpenCV scanned-visual extraction failed on page %s", page_number)
-            pass
+        except (cv2.error, ValueError) as exc:
+            logger.error("OpenCV scanned-visual extraction failed on page %s: %s", page_number, exc)
 
         figure_dicts = [f.to_dict() if hasattr(f, "to_dict") else f for f in extracted_figures]
         sorted_refs = sorted(list(figure_refs_found))

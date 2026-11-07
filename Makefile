@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: test eval eval-dev eval-ci lint format typecheck cov
+.PHONY: test eval eval-dev eval-ci eval-captions lint format typecheck cov
 
 test:
 	$(PYTHON) -m pytest -q
@@ -30,3 +30,7 @@ typecheck:
 
 cov:
 	$(PYTHON) -m pytest -q --cov=api --cov=src/qa --cov-report=term-missing --cov-fail-under=85
+
+# Caption precision on the labeled set (needs the local PDFs in data/uploads).
+eval-captions:
+	RUN_CAPTION_EVAL=1 $(PYTHON) -m pytest -q -s tests/test_captions.py -k precision
