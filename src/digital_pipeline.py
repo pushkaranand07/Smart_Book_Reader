@@ -288,7 +288,6 @@ class DigitalPipeline:
         page_number: int,
         pdf_stem: str,
         is_meaningful_fn,
-        clean_text_fn,
         extract_terms_fn,
         figure_factory_fn,
     ) -> tuple[list[str], list[dict[str, Any]], list[str]]:

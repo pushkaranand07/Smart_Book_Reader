@@ -283,7 +283,6 @@ class PDFProcessor:
                 page_number=page_number,
                 pdf_stem=pdf_stem,
                 is_meaningful_fn=is_meaningful_content_image,
-                clean_text_fn=clean_repeated_lines,
                 extract_terms_fn=extract_meaningful_terms,
                 figure_factory_fn=ExtractedFigure,
             )
