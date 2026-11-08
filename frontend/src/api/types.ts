@@ -102,7 +102,3 @@ export interface Answer {
   citations: Citation[];
   figures: Figure[];
 }
-
-export interface QuestionRequest {
-  question: string;
-}
