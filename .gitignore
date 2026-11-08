@@ -53,3 +53,11 @@ docs/PA-OH-1.md
 data/registry.db*
 data/queue.db*
 data/.cache/
+
+# Personal editor settings
+.vscode/
+
+# Generated test artifacts
+.coverage
+coverage.xml
+htmlcov/
