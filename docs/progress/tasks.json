@@ -1,7 +1,7 @@
 {
   "title": "Production hardening (5/10 to 10/10)",
   "branch": "production-hardening",
-  "current": "Waiting for CI; final golden eval; final report",
+  "current": "Done. See docs/FINAL_REPORT.md",
   "phases": [
     {
       "name": "Phase 0: Setup and PLAN.md",
@@ -231,7 +231,7 @@
       "tasks": [
         {
           "name": "Before/after table with evidence",
-          "done": false
+          "done": true
         }
       ]
     }
@@ -255,6 +255,7 @@
     "23:08 Real end-to-end (browser -> live API -> real models): PASSED",
     "23:29 Phase 5: Dockerfile/compose/CI committed; API+huey worker verified as two processes locally",
     "23:29 Phase 6: ruff 574->0, mypy strict 0 errors, 0 bare excepts, coverage 90%",
-    "23:29 CI: first run failed on a bad opencv pin (fixed); full dep set now resolves for linux/py3.13"
+    "23:29 CI: first run failed on a bad opencv pin (fixed); full dep set now resolves for linux/py3.13",
+    "15:45 Project completed: main == production-hardening, CI green; final report in docs/FINAL_REPORT.md"
   ]
 }
