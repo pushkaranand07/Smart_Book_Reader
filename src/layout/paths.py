@@ -12,7 +12,6 @@ IMAGES_DIR = TRAINING_DATA_DIR / "images"
 MODEL_DIR = PROJECT_ROOT / "model"
 FLORENCE_LAYOUT_DIR = MODEL_DIR / "florence_layout"
 RUNS_DIR = PROJECT_ROOT / "runs"
-EVAL_DIR = PROJECT_ROOT / "evaluation"
 
 
 def resolve_image_path(image_path: str, manifest_dir: Path | None = None) -> Path:

@@ -110,36 +110,3 @@ class FlorenceVisualDetector:
 
         results.sort(key=lambda r: r["width"] * r["height"], reverse=True)
         return results
-
-    def caption_image(self, pil_image: Image.Image) -> str:
-        if not self.is_available:
-            return ""
-        try:
-            with _florence_lock:
-                det = generate_detections(
-                    _florence_model, _florence_processor, pil_image, _florence_device, max_new_tokens=256
-                )
-            return det.get("raw_text", "").strip()
-        except (RuntimeError, ValueError, IndexError, KeyError) as exc:
-            logger.error("Florence image captioning failed: %s", exc)
-            return ""
-
-    def detect_and_caption(self, pil_image: Image.Image) -> dict[str, Any]:
-        return {
-            "caption": self.caption_image(pil_image),
-            "regions": self.detect_visual_boxes(pil_image),
-        }
-
-
-_detector_instance: FlorenceVisualDetector | None = None
-
-
-def get_florence_detector() -> tuple[bool, FlorenceVisualDetector | None, str]:
-    global _detector_instance
-    if _detector_instance is None:
-        _detector_instance = FlorenceVisualDetector()
-    return (
-        _detector_instance.is_available,
-        _detector_instance,
-        _detector_instance.status_msg,
-    )

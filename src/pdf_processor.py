@@ -261,13 +261,6 @@ class PDFProcessor:
             visual_detector=self.visual_detector,
         )
 
-    def get_page_preview_bytes(self, page: fitz.Page, dpi: int = 120) -> bytes:
-        """Get PNG preview bytes of a page for UI rendering."""
-        zoom = dpi / 72.0
-        mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat, alpha=False)
-        return pix.tobytes("png")
-
     def process_page(
         self,
         doc: fitz.Document,

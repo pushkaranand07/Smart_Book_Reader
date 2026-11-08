@@ -151,27 +151,3 @@ def ocr_image_with_metadata(
     if primary_engine_name() == "paddleocr":
         return ocr_image_paddleocr_structured(image, languages=languages, min_confidence=min_confidence)
     return ocr_image_rapidocr_structured(image, min_confidence=min_confidence)
-
-
-def ocr_image_tesseract(image: Any, lang: str = "eng") -> str:
-    """Fallback OCR using pytesseract."""
-    import pytesseract
-
-    try:
-        data = pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT, config="--psm 6")
-    except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, OSError) as exc:
-        logger.error("Tesseract OCR failed: %s", exc)
-        return ""
-    words = [w for w, c in zip(data["text"], data["conf"], strict=False) if w.strip() and int(float(c)) > 40]
-    return " ".join(words)
-
-
-def ocr_image(image: Any, languages: list[str] | None = None, min_confidence: float = 0.3) -> str:
-    """Primary OCR text, falling back to Tesseract when the primary engine is unavailable or empty."""
-    try:
-        text = str(ocr_image_with_metadata(image, languages=languages, min_confidence=min_confidence)["text"])
-        if text.strip():
-            return text
-    except OCRUnavailable as exc:
-        logger.warning("primary OCR unavailable, using Tesseract: %s", exc)
-    return ocr_image_tesseract(image)

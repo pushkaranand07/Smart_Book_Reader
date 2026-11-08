@@ -24,31 +24,6 @@ def _figure_reference_from_legacy(raw_figure: dict[str, Any]) -> str | None:
     return None
 
 
-def _is_valid_legacy_figure(raw_figure: dict[str, Any]) -> bool:
-    if not isinstance(raw_figure, dict):
-        return False
-
-    caption = str(raw_figure.get("caption") or "")
-    label = str(raw_figure.get("figure_label") or "")
-    raw_id = str(raw_figure.get("figure_id") or "")
-
-    if raw_id.lower() in {"none", "null", "nan", ""} and not label and not caption:
-        return False
-
-    # OCR often misclassifies long explanatory sentences as figures. Those should be filtered
-    # unless they include an explicit figure/table reference.
-    if not _figure_reference_from_legacy(raw_figure) and len(caption) > 150:
-        return False
-
-    if _figure_reference_from_legacy(raw_figure):
-        return True
-
-    if raw_id and not re.search(r"\s", raw_id) and re.search(r"\d", raw_id):
-        return True
-
-    return bool(label.strip()) or bool(caption.strip())
-
-
 def parse_explicit_reference(text: str) -> str | None:
     if not text:
         return None

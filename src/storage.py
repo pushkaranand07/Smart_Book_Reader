@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -47,27 +46,9 @@ def ensure_directories() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def clear_cache() -> None:
-    """Purge extracted JSONs and cropped images to force a fresh re-extraction."""
-    for folder in [EXTRACTED_DIR, IMAGES_DIR]:
-        if folder.exists():
-            shutil.rmtree(folder)
-    ensure_directories()
-
-
 def sanitize_filename(name: str) -> str:
     """Sanitize filename to avoid invalid path characters."""
     return re.sub(r'[\\/*?:"<>| ]', "_", name)
-
-
-def save_uploaded_file(file_bytes: bytes, filename: str) -> Path:
-    """Save uploaded PDF bytes to data/uploads/ and return the absolute path."""
-    ensure_directories()
-    safe_name = sanitize_filename(filename)
-    target_path = UPLOADS_DIR / safe_name
-    with open(target_path, "wb") as f:
-        f.write(file_bytes)
-    return target_path
 
 
 def save_extraction_results(filename: str, data: dict[str, Any]) -> Path:
