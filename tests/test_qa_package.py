@@ -173,10 +173,10 @@ def test_engine_falls_back_to_offline_when_gemini_fails(monkeypatch):
 def test_engine_uses_gemini_answer_and_self_check(monkeypatch):
     monkeypatch.setattr(
         "src.qa.engine.generate_answer",
-        lambda *a, **k: gemini.GeminiAnswer("Fats go rancid when oxidised.", True, "m"),
+        lambda *a, **k: gemini.GeminiAnswer("Rancidity is the oxidation of fats and oils in food.", True, "m"),
     )
     result = make_engine().answer("What is rancidity?", PAGES, book_key="g2", gemini_api_key="key")
-    assert result.mode == "gemini" and result.answer.startswith("Fats") and result.citations
+    assert result.mode == "gemini" and result.answer.startswith("Rancidity is the oxidation") and result.citations
 
     monkeypatch.setattr("src.qa.engine.generate_answer", lambda *a, **k: gemini.GeminiAnswer("", False, "m"))
     refused = make_engine().answer("What is rancidity?", PAGES, book_key="g3", gemini_api_key="key")

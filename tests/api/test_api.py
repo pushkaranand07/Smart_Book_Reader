@@ -226,11 +226,15 @@ def test_ask_with_gemini_mocked(make_client, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     client = make_client()
     monkeypatch.setattr(
-        "src.qa.engine.generate_answer", lambda *a, **k: GeminiAnswer("Metals slowly break down.", True, "m")
+        "src.qa.engine.generate_answer",
+        lambda *a, **k: GeminiAnswer("Corrosion is the slow destruction of metals by air and moisture.", True, "m"),
     )
     book_id = upload(client).json()["book_id"]
     body = client.post(f"/api/books/{book_id}/questions", json={"question": "What is corrosion?"}, headers=auth())
-    assert body.json()["mode"] == "gemini" and body.json()["answer"] == "Metals slowly break down."
+    assert (
+        body.json()["mode"] == "gemini"
+        and body.json()["answer"] == "Corrosion is the slow destruction of metals by air and moisture."
+    )
 
 
 def test_ask_validation_and_not_ready(client: TestClient):

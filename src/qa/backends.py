@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 EMBED_MODEL = os.environ.get("QA_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 RERANK_MODEL = os.environ.get("QA_RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L6-v2")
 READER_MODEL = os.environ.get("QA_READER_MODEL", "deepset/roberta-base-squad2")
+NLI_MODEL = os.environ.get("QA_NLI_MODEL", "cross-encoder/nli-deberta-v3-small")
 _BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -59,6 +60,10 @@ class Backend(Protocol):
     def rerank(self, query: str, texts: list[str]) -> list[float]: ...
 
     def extract(self, question: str, contexts: list[str]) -> Span | None: ...
+
+    def entailment(self, pairs: list[tuple[str, str]]) -> list[float]:
+        """P(premise entails hypothesis) for each (premise, hypothesis) pair."""
+        ...
 
 
 class LexicalBackend:
@@ -101,6 +106,17 @@ class LexicalBackend:
                     best = Span(sentence.strip(), score, 5.0, idx)
         return best
 
+    def entailment(self, pairs: list[tuple[str, str]]) -> list[float]:
+        out = []
+        for premise, hypothesis in pairs:
+            hyp = set(tokens(hypothesis))
+            covered = len(hyp & set(tokens(premise))) / max(1, len(hyp))
+            out.append(1.0 if covered >= LEXICAL_ENTAILMENT_COVERAGE else covered / 2)
+        return out
+
+
+LEXICAL_ENTAILMENT_COVERAGE = 0.8
+
 
 class TransformerBackend:
     """bge-small embeddings, MiniLM cross-encoder reranker, roberta-base-squad2 reader."""
@@ -112,6 +128,8 @@ class TransformerBackend:
         self._embedder: Any = None
         self._reranker: Any = None
         self._reader: tuple[Any, Any] | None = None
+        self._nli: Any = None
+        self._nli_entail_index = 1
 
     def _get_embedder(self) -> Any:
         with self._lock:
@@ -143,6 +161,7 @@ class TransformerBackend:
         self._get_embedder()
         self._get_reranker()
         self._get_reader()
+        self._get_nli()
 
     def embed(self, texts: list[str], *, is_query: bool = False) -> np.ndarray:
         if is_query:
@@ -151,6 +170,22 @@ class TransformerBackend:
             texts, batch_size=32, normalize_embeddings=True, show_progress_bar=False, convert_to_numpy=True
         )
         return np.asarray(vectors, dtype=np.float32)
+
+    def _get_nli(self) -> Any:
+        with self._lock:
+            if self._nli is None:
+                from sentence_transformers import CrossEncoder
+
+                self._nli = CrossEncoder(NLI_MODEL, device="cpu")
+                labels = {str(v).lower(): int(k) for k, v in self._nli.model.config.id2label.items()}
+                self._nli_entail_index = labels.get("entailment", 1)
+            return self._nli
+
+    def entailment(self, pairs: list[tuple[str, str]]) -> list[float]:
+        if not pairs:
+            return []
+        probs = self._get_nli().predict(pairs, apply_softmax=True, batch_size=16, show_progress_bar=False)
+        return [float(row[self._nli_entail_index]) for row in probs]
 
     def rerank(self, query: str, texts: list[str]) -> list[float]:
         if not texts:

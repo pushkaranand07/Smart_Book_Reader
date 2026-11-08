@@ -1,4 +1,4 @@
-"""QA orchestration: retrieve -> rerank -> decide sufficiency -> answer (offline or Gemini)."""
+"""QA orchestration: retrieve -> rerank -> decide sufficiency -> answer (offline, or an optional LLM provider)."""
 
 from __future__ import annotations
 
@@ -7,20 +7,24 @@ import os
 import re
 import threading
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from src.qa.answer import compose_offline_answer
-from src.qa.backends import Backend, get_backend, sigmoid
+from src.qa.backends import Backend, Span, get_backend, sigmoid
 from src.qa.chunking import chunk_pages
-from src.qa.gemini import GeminiUnavailable, generate_answer
+from src.qa.gemini import GeminiAnswer, GeminiUnavailable, generate_answer
+from src.qa.grounding import verify
+from src.qa.query import split_comparison, sub_question
 from src.qa.retrieval import BookIndex
-from src.qa.types import AnswerResult, Citation, ScoredChunk
+from src.qa.types import AnswerResult, Citation, Mode, ScoredChunk
 
 logger = logging.getLogger(__name__)
 
 NOT_COVERED = "This isn't covered in the book."
+NOT_STATED = "The book mentions this topic but doesn't state the answer."
 
 
 def _env_float(name: str, default: float) -> float:
@@ -39,6 +43,26 @@ SENTENCE_FLOOR = _env_float("QA_SENTENCE_FLOOR", -3.0)
 EXERCISE_PENALTY = 3.0
 RERANK_POOL = 20
 CITE_TOP = 3
+
+
+@dataclass(frozen=True)
+class LLMProvider:
+    """An optional answer generator. `generate` raises GeminiUnavailable on any failure."""
+
+    name: str
+    generate: Callable[[str, str, list[ScoredChunk]], GeminiAnswer]
+
+
+@dataclass
+class _Analysis:
+    ranked: list[ScoredChunk]
+    span: Span | None
+    top: float
+    margin: float
+
+    @property
+    def sufficient(self) -> bool:
+        return self.top >= RERANK_THRESHOLD and (self.margin >= SPAN_MARGIN_THRESHOLD or self.top >= STRONG_RERANK)
 
 
 class QAEngine:
@@ -81,6 +105,13 @@ class QAEngine:
         ]
         return sorted(rescored, key=lambda c: c.score, reverse=True)
 
+    def _analyse(self, question: str, index: BookIndex) -> _Analysis:
+        ranked = self.retrieve(question, index)
+        if not ranked:
+            return _Analysis([], None, float("-inf"), float("-inf"))
+        span = self.backend.extract(question, [c.chunk.text for c in ranked[:3]])
+        return _Analysis(ranked, span, ranked[0].score, span.margin if span else float("-inf"))
+
     def answer(
         self,
         question: str,
@@ -89,61 +120,132 @@ class QAEngine:
         title: str = "",
         gemini_api_key: str | None = None,
         figure_ids_by_page: Mapping[int, Sequence[str]] | None = None,
+        llm: LLMProvider | None = None,
     ) -> AnswerResult:
         question = question.strip()
         if not question:
             return AnswerResult("Please ask a question.", None, False, 0.0, "offline")
         index = self.index_for(book_key, pages)
-        ranked = self.retrieve(question, index)
-        if not ranked:
+
+        # Comparison questions ("difference between X and Y") are answered per concept, so both sides are covered.
+        concepts = split_comparison(question)
+        parts = [(c, self._analyse(sub_question(c), index)) for c in concepts] if concepts else []
+        # For comparisons the whole question is only used to widen retrieval, so skip the (slow) reader on it.
+        whole = _Analysis(self.retrieve(question, index), None, 0.0, 0.0) if parts else self._analyse(question, index)
+        if not whole.ranked and not parts:
             return AnswerResult(NOT_COVERED, None, False, 0.0, "offline", diagnostics={"reason": "no_candidates"})
 
-        top_score = ranked[0].score
-        span = self.backend.extract(question, [c.chunk.text for c in ranked[:3]])
-        margin = span.margin if span else float("-inf")
-        sufficient = top_score >= RERANK_THRESHOLD and (margin >= SPAN_MARGIN_THRESHOLD or top_score >= STRONG_RERANK)
+        span: Span | None
+        if parts:
+            top = min(a.top for _, a in parts)
+            margin = min(a.margin for _, a in parts)
+            sufficient = all(a.sufficient for _, a in parts)
+            ranked = _interleave([a.ranked for _, a in parts] + [whole.ranked])
+            span = None
+        else:
+            top, margin, sufficient, ranked, span = whole.top, whole.margin, whole.sufficient, whole.ranked, whole.span
+
+        has_margin = margin != float("-inf")
         diagnostics: dict[str, Any] = {
-            "top_rerank": round(top_score, 3),
-            "span_margin": round(margin, 3) if span else None,
+            "top_rerank": round(top, 3),
+            "span_margin": round(margin, 3) if has_margin else None,
             "backend": self.backend.name,
             "candidates": len(ranked),
         }
-        confidence = sigmoid(top_score / 2.0) * (sigmoid(margin / 2.0) if span else 0.5)
+        if parts:
+            diagnostics["comparison"] = [
+                {"concept": c, "top_rerank": round(a.top, 3), "sufficient": a.sufficient} for c, a in parts
+            ]
+        confidence = sigmoid(top / 2.0) * (sigmoid(margin / 2.0) if has_margin else 0.5)
 
         if not sufficient:
             diagnostics["reason"] = "below_threshold"
             return AnswerResult(NOT_COVERED, None, False, confidence, "offline", diagnostics=diagnostics)
 
-        answer_text, used = compose_offline_answer(question, ranked, span, self.backend, SENTENCE_FLOOR)
-        extractive = span.text if span and margin >= SPAN_MARGIN_THRESHOLD else None
-        mode: str = "offline"
+        used: list[ScoredChunk]
+        if parts:
+            pieces: list[str] = []
+            used = []
+            for concept, analysis in parts:
+                text, chunks = compose_offline_answer(
+                    sub_question(concept), analysis.ranked, analysis.span, self.backend, SENTENCE_FLOOR
+                )
+                if text:
+                    pieces.append(f"{concept[:1].upper()}{concept[1:]}: {text}")
+                used += [c for c in chunks if c not in used]
+            answer_text, extractive = "\n\n".join(pieces), None
+        else:
+            answer_text, used = compose_offline_answer(question, ranked, span, self.backend, SENTENCE_FLOOR)
+            extractive = span.text if span and margin >= SPAN_MARGIN_THRESHOLD else None
+        mode = "offline"
 
-        if gemini_api_key:
+        provider = llm
+        if provider is None and gemini_api_key:
+            key = gemini_api_key
+            provider = LLMProvider("gemini", lambda q, t, e: generate_answer(q, t, e, key))
+        if provider is not None:
+            evidence = ranked[:6] if parts else ranked[:5]
             try:
-                generated = generate_answer(question, title, ranked[:5], gemini_api_key)
+                generated = provider.generate(question, title, evidence)
             except GeminiUnavailable as exc:
-                diagnostics["gemini_error"] = str(exc)[:200]
+                diagnostics[f"{provider.name}_error"] = str(exc)[:200]
             else:
-                diagnostics["gemini_model"] = generated.model
+                diagnostics[f"{provider.name}_model"] = generated.model
                 if not generated.in_scope:
-                    diagnostics["reason"] = "gemini_self_check"
-                    return AnswerResult(NOT_COVERED, None, False, confidence, "gemini", diagnostics=diagnostics)
-                answer_text, mode, used = generated.text, "gemini", ranked[:CITE_TOP]
+                    diagnostics["reason"] = f"{provider.name}_self_check"
+                    return AnswerResult(
+                        NOT_COVERED,
+                        None,
+                        False,
+                        confidence,
+                        cast(Mode, provider.name),
+                        diagnostics=diagnostics,
+                    )
+                # The model may only say what the passages support: drop every sentence they do not entail.
+                grounding = verify(generated.text, evidence, self.backend)
+                diagnostics["grounding"] = {
+                    "kept": len(grounding.kept),
+                    "dropped": len(grounding.dropped),
+                    "scores": grounding.scores,
+                }
+                if not grounding.kept:
+                    diagnostics["reason"] = "llm_answer_not_supported_by_book"
+                    return AnswerResult(
+                        NOT_STATED,
+                        None,
+                        False,
+                        confidence,
+                        cast(Mode, provider.name),
+                        diagnostics=diagnostics,
+                    )
+                answer_text, mode, used = grounding.text, provider.name, evidence[:CITE_TOP]
 
         if not answer_text:
             answer_text = extractive or ranked[0].chunk.text[:300]
         cited = used or ranked[:1]
-        citations = [_citation(c, figure_ids_by_page) for c in cited[:CITE_TOP]]
+        citations = [_citation(c, figure_ids_by_page) for c in cited[: CITE_TOP + (1 if parts else 0)]]
         return AnswerResult(
             answer=answer_text,
             extractive_answer=extractive,
             is_sufficient=True,
             confidence=confidence,
-            mode="gemini" if mode == "gemini" else "offline",
+            mode=cast(Mode, mode),
             citations=citations,
             evidence=ranked[:5],
             diagnostics=diagnostics,
         )
+
+
+def _interleave(rankings: list[list[ScoredChunk]], per_list: int = 4) -> list[ScoredChunk]:
+    """Round-robin merge of several rankings, de-duplicated by chunk id."""
+    merged: list[ScoredChunk] = []
+    seen: set[str] = set()
+    for position in range(per_list):
+        for ranking in rankings:
+            if position < len(ranking) and ranking[position].chunk.chunk_id not in seen:
+                seen.add(ranking[position].chunk.chunk_id)
+                merged.append(ranking[position])
+    return merged
 
 
 def _citation(item: ScoredChunk, figure_ids_by_page: Mapping[int, Sequence[str]] | None) -> Citation:

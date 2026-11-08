@@ -23,9 +23,9 @@ log = logging.getLogger("fetch_models")
 def fetch_qa() -> None:
     from huggingface_hub import snapshot_download
 
-    from src.qa.backends import EMBED_MODEL, READER_MODEL, RERANK_MODEL
+    from src.qa.backends import EMBED_MODEL, NLI_MODEL, READER_MODEL, RERANK_MODEL
 
-    for repo in (EMBED_MODEL, RERANK_MODEL, READER_MODEL):
+    for repo in (EMBED_MODEL, RERANK_MODEL, READER_MODEL, NLI_MODEL):
         log.info("downloading %s", repo)
         snapshot_download(repo, allow_patterns=["*.json", "*.txt", "*.safetensors", "*.model", "merges.txt", "vocab*"])
     try:

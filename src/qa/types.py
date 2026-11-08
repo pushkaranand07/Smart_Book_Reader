@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+Mode = Literal["offline", "gemini"]
+
 
 @dataclass(frozen=True)
 class Chunk:
@@ -40,7 +42,7 @@ class AnswerResult:
     extractive_answer: str | None
     is_sufficient: bool
     confidence: float
-    mode: Literal["offline", "gemini"]
+    mode: Mode
     citations: list[Citation] = field(default_factory=list)
     evidence: list[ScoredChunk] = field(default_factory=list)
     diagnostics: dict[str, Any] = field(default_factory=dict)

@@ -21,6 +21,9 @@ PROMPT_TEMPLATE = """You answer questions about the document "{title}" using ONL
 
 Rules:
 - If the excerpts do not contain the answer, reply with exactly {not_in_book} and nothing else.
+- If the excerpts only mention the topic or pose it as an exercise without answering it, also reply {not_in_book}.
+- Use only facts stated in the excerpts. Never add reasons, mechanisms, examples or numbers from your own
+  knowledge, even if you are sure they are true.
 - Otherwise answer directly in 2-6 sentences of plain prose. Match the depth to the question.
 - Do not restate the question. Do not add headings, page numbers or a sources section.
 - Use LaTeX ($...$) only when the excerpts contain formulas or equations.

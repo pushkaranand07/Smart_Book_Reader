@@ -14,7 +14,7 @@ from typing import Any
 
 from src.normalized_document import parse_explicit_reference
 from src.pdf_processor import extract_meaningful_terms, find_figures_for_query, is_figure_or_table
-from src.qa.engine import NOT_COVERED, get_engine
+from src.qa.engine import LLMProvider, get_engine
 from src.qa.types import AnswerResult
 
 logger = logging.getLogger(__name__)
@@ -179,8 +179,9 @@ def answer_question(
     book_data: dict[str, Any],
     api_key: str | None = None,
     top_k: int = 5,
+    llm: LLMProvider | None = None,
 ) -> dict[str, Any]:
-    """Answer a question about a processed book. Gemini is used only when a key is configured."""
+    """Answer a question about a processed book. An optional LLM (Gemini or an injected provider) refines answers."""
     pages = _normalized_pages_for_retrieval(book_data)
     empty: dict[str, Any] = {
         "query": query,
@@ -212,6 +213,7 @@ def answer_question(
         book_key=_book_key(book_data),
         title=title,
         gemini_api_key=resolved_key,
+        llm=llm,
         figure_ids_by_page=figure_ids_by_page,
     )
 
@@ -241,7 +243,7 @@ def answer_question(
         **empty,
         **payload,
         "query": query,
-        "answer": answer_text if is_sufficient else NOT_COVERED,
+        "answer": answer_text if is_sufficient else result.answer,
         "is_sufficient": is_sufficient,
         "source_pages": cited_pages[:top_k] if is_sufficient else [],
         "evidence": evidence_pages[:top_k] if is_sufficient else [],
