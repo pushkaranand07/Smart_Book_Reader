@@ -86,7 +86,7 @@ class AnswerOut(BaseModel):
     extractive_answer: str | None
     is_sufficient: bool
     confidence: float
-    mode: Literal["offline", "gemini"]
+    mode: Literal["offline", "gemini", "azure_openai"]
     citations: list[CitationOut]
     figures: list[FigureOut]
 

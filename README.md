@@ -2,7 +2,8 @@
 
 Upload a textbook, paper or scanned PDF. Smart Book Reader extracts the text (native or OCR), finds figures and
 their real captions, and answers questions about the book with citations to the pages it used. It works fully
-offline; Gemini is an optional upgrade for answer wording.
+offline; Azure OpenAI or Gemini are optional upgrades for answer wording, and every LLM sentence is checked
+against the book before it is shown.
 
 ## Architecture
 
@@ -21,7 +22,7 @@ flowchart LR
   W -->|build index| IDX[(QA index cache)]
   API -->|signed, expiring URLs| FS
   API --> QA[QA: chunk, BM25 + bge-small, RRF, MiniLM rerank, roberta-squad2 reader]
-  QA -. optional .-> G[Gemini]
+  QA -. optional .-> G[Azure OpenAI / Gemini, grounded by NLI check]
 ```
 
 | Layer | Code | Notes |
@@ -72,6 +73,7 @@ Every setting is documented in [.env.example](.env.example). The important ones:
 | `JOBS_MODE` | `process` | `process` (low-priority worker started by the API), `huey` (separate worker service), `thread`, `immediate` (tests) |
 | `FLORENCE_MODE` | `disabled` | `base` uses Florence-2-base; `required` makes `/readyz` fail without fine-tuned weights |
 | `FLORENCE_HF_REPO`, `HF_TOKEN` | (empty) | Where the entrypoint downloads the fine-tuned adapter from |
+| `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT_NAME` | (empty) | Optional Azure OpenAI answers; used when all three are set (wins over Gemini). `OPENAI_API_VERSION`, `AZURE_OPENAI_REASONING_EFFORT` tune it |
 | `GEMINI_API_KEY` | (empty) | Optional; the app is complete without it |
 | `PORT` | `8000` | Same default in the Dockerfile, compose, Vite proxy and nginx |
 

@@ -68,6 +68,10 @@ def readyz(settings: Settings = Depends(get_settings)) -> JSONResponse:
     else:
         checks["auth"] = settings.auth_mode
     checks["jobs"] = settings.jobs_mode
+    azure = settings.azure_config
+    checks["llm"] = (
+        f"azure_openai ({azure.deployment})" if azure else ("gemini" if settings.gemini_api_key else "offline only")
+    )
     checks["pid"] = str(os.getpid())
     body = ReadyOut(status="ready" if ok else "not_ready", checks=checks)
     return JSONResponse(status_code=200 if ok else 503, content=body.model_dump())

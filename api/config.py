@@ -11,6 +11,8 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.qa.azure_llm import AzureConfig
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -48,6 +50,12 @@ class Settings(BaseSettings):
     book_cache_size: int = 8
 
     gemini_api_key: str | None = None
+    # Optional Azure OpenAI synthesis; used instead of Gemini when key, endpoint and deployment are all set.
+    azure_openai_api_key: str | None = None
+    azure_openai_endpoint: str | None = None
+    azure_openai_deployment_name: str | None = None
+    openai_api_version: str | None = None
+    azure_openai_reasoning_effort: str | None = None
     # "required": /readyz fails without fine-tuned weights; "base": use Florence-2-base; "disabled": skip Florence.
     florence_mode: Literal["required", "base", "disabled"] = "disabled"
     warm_models_on_start: bool = False
@@ -58,6 +66,16 @@ class Settings(BaseSettings):
     @classmethod
     def _absolute(cls, value: Path) -> Path:
         return value if value.is_absolute() else (PROJECT_ROOT / value).resolve()
+
+    @property
+    def azure_config(self) -> AzureConfig | None:
+        return AzureConfig.from_values(
+            self.azure_openai_api_key,
+            self.azure_openai_endpoint,
+            self.azure_openai_deployment_name,
+            self.openai_api_version,
+            self.azure_openai_reasoning_effort,
+        )
 
     @property
     def max_upload_bytes(self) -> int:

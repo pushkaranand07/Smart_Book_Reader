@@ -78,7 +78,7 @@ evidence is independent of me. Several criteria below were verified only on test
 - `ruff check` / `ruff format`: **574 → 0**.
 - `mypy --strict` on `api/` and the QA package: **0 errors** (32 files).
 - Bare `except Exception`: **38 → 0**. The single catch-all is the API's last-resort handler, which logs and returns a typed 500.
-- **106** Python tests. Coverage on `api/` + `src/qa/`: **89.8%** (CI gate 85%).
+- **115** Python tests. Coverage on `api/` + `src/qa/`: **90.3%** (CI gate 85%).
 - pre-commit hooks; README rewritten.
 
 ## Not reached, and why
@@ -88,7 +88,8 @@ evidence is independent of me. Several criteria below were verified only on test
 3. **Railway deploy.** Configured (`railway.toml`) but never deployed.
 4. **PyMuPDF is AGPL-3.0.** It is flagged, and a permissive replacement (pypdfium2 + pdfplumber) is proposed, but it was not migrated because that touches every pipeline module.
 5. **Scanned-page layout.** Captions on scanned pages use OCR line geometry plus regex rules, not a learned layout model.
-6. **Azure OpenAI.** It was tested live with gpt-5 but deliberately **not committed**: the key was temporary, at your request. The engine accepts any `LLMProvider`, so adding Azure later is a small change.
+6. **Azure OpenAI** is now an optional provider (committed after the live gpt-5 test). It is inert without the
+   three `AZURE_OPENAI_*` settings; keys live only in `.env`.
 7. **Open oddities I could not explain:**
    - One full test-suite run stalled past 10 minutes once; it did not reproduce in 3 reruns.
    - One Azure call took about 1 hour. Likely laptop sleep; it is now capped by the 60 s deadline.
@@ -97,6 +98,8 @@ evidence is independent of me. Several criteria below were verified only on test
 ## New dependencies and licenses
 
 **Python (runtime):**
+
+- Optional LLM: openai (Apache-2.0), used only for Azure OpenAI
 
 - Retrieval and models: bm25s (MIT), sentence-transformers (Apache-2.0), transformers (Apache-2.0), torch CPU (BSD-3), peft (Apache-2.0), timm (Apache-2.0), einops (MIT)
 - OCR and images: rapidocr (Apache-2.0), onnxruntime (MIT), opencv-python-headless (Apache-2.0)

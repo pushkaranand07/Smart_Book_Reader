@@ -18,12 +18,23 @@ from api.jobs import dispatch
 from api.limits import limiter
 from api.schemas import AnswerOut, BookDetail, BookList, BookSummary, CitationOut, QuestionIn, UploadAccepted
 from api.security import safe_data_path, verify
+from src.qa.engine import LLMProvider
 
 router = APIRouter(prefix="/api", tags=["books"])
 book_cache = BookDataCache(size=get_settings().book_cache_size)
 ERRORS: dict[int | str, dict[str, Any]] = {
     code: {"model": ErrorResponse} for code in (401, 404, 409, 413, 415, 422, 429)
 }
+
+
+def _azure_provider(settings: Settings) -> LLMProvider | None:
+    """Optional Azure OpenAI provider, enabled when AZURE_OPENAI_API_KEY, _ENDPOINT and _DEPLOYMENT_NAME are set."""
+    from src.qa import azure_llm
+
+    config = settings.azure_config
+    if config is None:
+        return None
+    return LLMProvider("azure_openai", lambda q, t, e: azure_llm.generate_answer(q, t, e, config))
 
 
 def _owned_book(session: Session, book_id: str, owner_id: str) -> Book:
@@ -120,7 +131,10 @@ def ask_question(
         raise ApiError(409, "BOOK_NOT_READY", "The book has not finished processing.")
     data = book_cache.get(settings, book.sha256)
     result = answer_question(
-        body.question, {**data, "book_id": book.sha256, "filename": book.filename}, api_key=settings.gemini_api_key
+        body.question,
+        {**data, "book_id": book.sha256, "filename": book.filename},
+        api_key=settings.gemini_api_key,
+        llm=_azure_provider(settings),
     )
     figures_by_ref = {
         (int(f.get("page_number") or 0), str(f.get("figure_id"))): k for k, f in figure_index(data).items()

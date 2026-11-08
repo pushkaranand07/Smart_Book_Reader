@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-Mode = Literal["offline", "gemini"]
+Mode = Literal["offline", "gemini", "azure_openai"]
 
 
 @dataclass(frozen=True)

@@ -385,3 +385,30 @@ def test_lower_process_priority_is_safe_to_call(monkeypatch: pytest.MonkeyPatch)
         monkeypatch.setattr(os, "nice", lambda n: calls.append(n))
         jobs.lower_process_priority()
         assert calls == [10]
+
+
+# ------------------------------------------------------------------ optional Azure OpenAI provider
+
+
+def test_ask_uses_azure_when_configured(make_client, monkeypatch: pytest.MonkeyPatch):
+    from src.qa.gemini import GeminiAnswer
+
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "fake-key")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.cognitiveservices.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5")
+    client = make_client()
+    assert client.get("/readyz").json()["checks"]["llm"] == "azure_openai (gpt-5)"
+    monkeypatch.setattr(
+        "src.qa.azure_llm.generate_answer",
+        lambda *a, **k: GeminiAnswer("Corrosion is the slow destruction of metals by air and moisture.", True, "azure"),
+    )
+    book_id = upload(client).json()["book_id"]
+    body = client.post(
+        f"/api/books/{book_id}/questions", json={"question": "What is corrosion?"}, headers=auth()
+    ).json()
+    assert body["mode"] == "azure_openai" and body["is_sufficient"]
+    assert body["answer"] == "Corrosion is the slow destruction of metals by air and moisture."
+
+
+def test_without_azure_settings_answers_stay_offline(client: TestClient):
+    assert client.get("/readyz").json()["checks"]["llm"] == "offline only"

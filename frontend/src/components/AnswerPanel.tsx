@@ -13,7 +13,11 @@ interface AnswerPanelProps {
   onOpenFigure: (figure: Figure) => void;
 }
 
-const MODE_LABEL: Record<Answer["mode"], string> = { offline: "Offline", gemini: "Gemini" };
+const MODE_LABEL: Record<Answer["mode"], string> = {
+  offline: "Offline",
+  gemini: "Gemini",
+  azure_openai: "Azure OpenAI",
+};
 const MAX_ANSWER_FIGURES = 3;
 
 export function AnswerPanel({ answer, figureLabel, onCitationSelect, onFigureSelect, onOpenFigure }: AnswerPanelProps) {

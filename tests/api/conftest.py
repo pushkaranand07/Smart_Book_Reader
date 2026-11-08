@@ -89,6 +89,8 @@ def api_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         monkeypatch.setenv(key, value)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    for name in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT_NAME", "OPENAI_API_VERSION"):
+        monkeypatch.delenv(name, raising=False)
     return env
 
 

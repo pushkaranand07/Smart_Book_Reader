@@ -10,7 +10,7 @@ export type BookStatus = JobStatus | (string & {});
 
 export type PageType = "Digital" | "Scanned";
 export type PageStatus = "ok" | "degraded" | "failed";
-export type AnswerMode = "offline" | "gemini";
+export type AnswerMode = "offline" | "gemini" | "azure_openai";
 
 export interface ApiErrorBody {
   error: {
