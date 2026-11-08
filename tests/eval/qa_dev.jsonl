@@ -14,3 +14,6 @@
 {"id": "d014", "book": "jesc106", "question": "What is the theory of relativity?", "answerable": false, "expected_pages": []}
 {"id": "d015", "book": "The+48+Laws+Of+Power", "question": "How do airplanes fly?", "answerable": false, "expected_pages": []}
 {"id": "d016", "book": "jesc101", "question": "What is the population of Tokyo?", "answerable": false, "expected_pages": []}
+{"id": "d017", "book": "jesc105", "question": "What are the differences between autotrophic and heterotrophic nutrition?", "answerable": true, "expected_pages": [3, 6, 20]}
+{"id": "d018", "book": "jesc105", "question": "Xylem vs phloem", "answerable": true, "expected_pages": [16, 17, 21]}
+{"id": "d019", "book": "jesc104", "question": "What is the difference between a virus and a bacterium?", "answerable": false, "expected_pages": []}

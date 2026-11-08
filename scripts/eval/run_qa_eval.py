@@ -44,6 +44,8 @@ def run(rows: list[dict[str, Any]], books_dir: Path, cache_dir: Path | None) -> 
             pages_by_book[book] = load_pages(books_dir, book)
             # Index build is a one-off cost paid by the worker at upload time; keep it out of answer latency.
             engine.index_for(book, pages_by_book[book])
+            if not results:  # load reranker/reader weights once, outside the timed region
+                engine.answer("warm up", pages_by_book[book], book_key=book)
         start = time.perf_counter()
         result = engine.answer(row["question"], pages_by_book[book], book_key=book, title=book)
         elapsed = time.perf_counter() - start

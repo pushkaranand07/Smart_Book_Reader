@@ -65,3 +65,14 @@
 {"id": "u012", "book": "The+48+Laws+Of+Power", "question": "What is photosynthesis?", "answerable": false, "expected_pages": []}
 {"id": "u013", "book": "The+48+Laws+Of+Power", "question": "How do I balance a chemical equation?", "answerable": false, "expected_pages": []}
 {"id": "u014", "book": "The+48+Laws+Of+Power", "question": "What is the boiling point of water in kelvin?", "answerable": false, "expected_pages": []}
+{"id": "c001", "book": "jesc101", "question": "What is the difference between a displacement and a double displacement reaction?", "answerable": true, "expected_pages": [10, 11, 14]}
+{"id": "c002", "book": "jesc101", "question": "Compare oxidation and reduction.", "answerable": true, "expected_pages": [12, 14]}
+{"id": "c003", "book": "jesc101", "question": "What is the difference between exothermic and endothermic reactions?", "answerable": true, "expected_pages": [7, 10, 14]}
+{"id": "c004", "book": "jesc104", "question": "What is the difference between saturated and unsaturated carbon compounds?", "answerable": true, "expected_pages": [5, 6, 7]}
+{"id": "c005", "book": "jesc104", "question": "How are soaps different from detergents?", "answerable": true, "expected_pages": [17, 18, 19, 20]}
+{"id": "c006", "book": "jesc103", "question": "How do metals differ from non-metals?", "answerable": true, "expected_pages": [1, 2, 3, 19]}
+{"id": "c007", "book": "jesc105", "question": "What is the difference between aerobic and anaerobic respiration?", "answerable": true, "expected_pages": [9, 10, 21]}
+{"id": "c008", "book": "jesc106", "question": "What is the difference between voluntary and involuntary actions?", "answerable": true, "expected_pages": [4, 5, 12]}
+{"id": "c009", "book": "jesc101", "question": "What is the difference between mitosis and meiosis?", "answerable": false, "expected_pages": []}
+{"id": "c010", "book": "jesc102", "question": "Compare TCP and UDP.", "answerable": false, "expected_pages": []}
+{"id": "c011", "book": "The+48+Laws+Of+Power", "question": "What is the difference between Python and Java?", "answerable": false, "expected_pages": []}
