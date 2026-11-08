@@ -181,3 +181,17 @@ def test_engine_uses_gemini_answer_and_self_check(monkeypatch):
     monkeypatch.setattr("src.qa.engine.generate_answer", lambda *a, **k: gemini.GeminiAnswer("", False, "m"))
     refused = make_engine().answer("What is rancidity?", PAGES, book_key="g3", gemini_api_key="key")
     assert not refused.is_sufficient and refused.diagnostics["reason"] == "gemini_self_check"
+
+
+def test_stale_section_heading_is_not_carried_through_the_book():
+    pages = [
+        {"page_number": 1, "text": "VIKING\nA publisher imprint line that is long enough to form a chunk of text."}
+    ]
+    pages += [
+        {"page_number": n, "text": f"Body text on page {n} about people and their emotions in everyday life."}
+        for n in range(2, 8)
+    ]
+    chunks = chunk_pages(pages)
+    by_page = {c.page_number: c.section for c in chunks}
+    assert by_page[2] == "VIKING" and by_page[3] == "VIKING"
+    assert by_page[4] is None and by_page[7] is None

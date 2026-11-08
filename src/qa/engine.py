@@ -8,6 +8,8 @@ import re
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -43,6 +45,9 @@ SENTENCE_FLOOR = _env_float("QA_SENTENCE_FLOOR", -3.0)
 EXERCISE_PENALTY = 3.0
 RERANK_POOL = 20
 CITE_TOP = 3
+LLM_EVIDENCE = 8
+# Hard wall-clock limit for one LLM call, whatever the SDK's own timeout does (a stuck socket once took an hour).
+LLM_DEADLINE_S = _env_float("QA_LLM_DEADLINE_S", 60.0)
 
 
 @dataclass(frozen=True)
@@ -184,9 +189,10 @@ class QAEngine:
             key = gemini_api_key
             provider = LLMProvider("gemini", lambda q, t, e: generate_answer(q, t, e, key))
         if provider is not None:
-            evidence = ranked[:6] if parts else ranked[:5]
+            # Long books need more context than the top 5: chapter-level questions span several passages.
+            evidence = ranked[:LLM_EVIDENCE]
             try:
-                generated = provider.generate(question, title, evidence)
+                generated = _call_with_deadline(provider, question, title, evidence)
             except GeminiUnavailable as exc:
                 diagnostics[f"{provider.name}_error"] = str(exc)[:200]
             else:
@@ -234,6 +240,20 @@ class QAEngine:
             evidence=ranked[:5],
             diagnostics=diagnostics,
         )
+
+
+_llm_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="llm-call")
+
+
+def _call_with_deadline(provider: LLMProvider, question: str, title: str, evidence: list[ScoredChunk]) -> GeminiAnswer:
+    """Run the provider call with a hard deadline; on expiry give up (the offline answer is used instead)."""
+    future = _llm_pool.submit(provider.generate, question, title, evidence)
+    try:
+        return future.result(timeout=LLM_DEADLINE_S)
+    except FutureTimeout as exc:
+        future.cancel()
+        logger.warning("%s call exceeded %.0fs; using the offline answer", provider.name, LLM_DEADLINE_S)
+        raise GeminiUnavailable(f"{provider.name}: no response within {LLM_DEADLINE_S:.0f}s") from exc
 
 
 def _interleave(rankings: list[list[ScoredChunk]], per_list: int = 4) -> list[ScoredChunk]:

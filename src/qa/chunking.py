@@ -11,6 +11,7 @@ from src.qa.types import Chunk
 
 TARGET_WORDS = 110
 MAX_WORDS = 180
+SECTION_MAX_PAGES = 2
 
 _NUMBERED_HEADING = re.compile(r"^\d+(?:\.\d+)+\s+[A-Z][^.?!]{2,90}$")
 _CAPS_HEADING = re.compile(r"^[A-Z][A-Z0-9 ,:&'()\-–]{5,80}$")
@@ -82,9 +83,14 @@ def chunk_pages(pages: Iterable[Mapping[str, Any]], document_id: str = "doc") ->
     boilerplate = _boilerplate_lines([_page_text(p) for p in page_list])
     chunks: list[Chunk] = []
     section: str | None = None
+    section_page = 0
 
     for page in page_list:
         page_number = int(page.get("page_number") or 0)
+        # A heading that has not been renewed for a few pages is stale (e.g. a publisher name on the title page
+        # in a book whose chapter titles are not detected as headings): a missing section beats a wrong one.
+        if section is not None and page_number - section_page > SECTION_MAX_PAGES:
+            section = None
         buffer: list[str] = []
         last_heading: str | None = None
 
@@ -117,6 +123,7 @@ def chunk_pages(pages: Iterable[Mapping[str, Any]], document_id: str = "doc") ->
                 flush()
                 last_heading = line
                 section = line
+                section_page = page_number
                 continue
             buffer.append(line)
             words = len(" ".join(buffer).split())

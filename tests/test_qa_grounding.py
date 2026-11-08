@@ -128,3 +128,23 @@ def test_llm_failure_falls_back_to_offline_and_self_check_refuses():
 
     refused = engine.answer("What is oxidation?", PAGES, book_key="g4", llm=_provider("", in_scope=False))
     assert not refused.is_sufficient and refused.answer == NOT_COVERED
+
+
+def test_llm_call_that_hangs_is_abandoned_and_offline_answer_used(monkeypatch):
+    import threading
+
+    import src.qa.engine as engine_module
+
+    monkeypatch.setattr(engine_module, "LLM_DEADLINE_S", 0.2)
+    release = threading.Event()
+
+    def hangs(*_a):
+        release.wait(5)
+        return GeminiAnswer("late", True, "slow")
+
+    result = QAEngine(backend=LexicalBackend()).answer(
+        "What is oxidation?", PAGES, book_key="slow", llm=LLMProvider("slow_llm", hangs)
+    )
+    release.set()
+    assert result.is_sufficient and result.mode == "offline"
+    assert "no response within" in result.diagnostics["slow_llm_error"]

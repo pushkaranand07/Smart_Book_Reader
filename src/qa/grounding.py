@@ -60,7 +60,7 @@ def verify(answer: str, evidence: list[ScoredChunk], backend: Backend) -> Ground
     if not sentences or not evidence:
         result.dropped = sentences
         return result
-    passages = [c.chunk.text for c in evidence[:6]]
+    passages = [c.chunk.text for c in evidence[:8]]
     token_sets = [set(tokens(p)) for p in passages]
     evidence_text = " ".join(passages)
 
