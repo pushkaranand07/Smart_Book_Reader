@@ -42,7 +42,7 @@ pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0 torchv
 pip install -r requirements/dev.txt
 cp .env.example .env                                       # set API_KEYS, MEDIA_SIGNING_SECRET
 python scripts/fetch_models.py qa                          # ~700 MB of QA/OCR models, once
-uvicorn api.main:app --port 8000                           # JOBS_MODE=thread: no separate worker needed
+uvicorn api.main:app --port 8000                           # JOBS_MODE=process: low-priority worker, no extra command
 
 cd frontend && npm ci && npm run dev                       # http://127.0.0.1:5173 (proxies /api to :8000)
 ```
@@ -69,7 +69,7 @@ Every setting is documented in [.env.example](.env.example). The important ones:
 | `API_KEYS` | (empty) | `owner:key` pairs; `/readyz` fails if empty in `api_key` mode |
 | `MEDIA_SIGNING_SECRET` | random per process | Signs figure/PDF URLs; set it explicitly in production |
 | `MAX_UPLOAD_MB`, `MAX_PAGES` | `50`, `1500` | Upload limits (413 / 422) |
-| `JOBS_MODE` | `thread` | `huey` (separate worker), `thread` (single process), `immediate` (tests) |
+| `JOBS_MODE` | `process` | `process` (low-priority worker started by the API), `huey` (separate worker service), `thread`, `immediate` (tests) |
 | `FLORENCE_MODE` | `disabled` | `base` uses Florence-2-base; `required` makes `/readyz` fail without fine-tuned weights |
 | `FLORENCE_HF_REPO`, `HF_TOKEN` | (empty) | Where the entrypoint downloads the fine-tuned adapter from |
 | `GEMINI_API_KEY` | (empty) | Optional; the app is complete without it |
@@ -133,7 +133,7 @@ cd frontend && npm run lint && npm run typecheck && npm test && npm run build &&
 ## Deployment
 
 - **Railway (API):** `railway.toml` builds `Dockerfile.api` and health-checks `/readyz`. Set `API_KEYS`,
-  `MEDIA_SIGNING_SECRET`, `CORS_ORIGINS`, attach a volume at `/app/data`. Use `JOBS_MODE=thread` on one service,
+  `MEDIA_SIGNING_SECRET`, `CORS_ORIGINS`, attach a volume at `/app/data`. Use `JOBS_MODE=process` on one service,
   or add a worker service (`/entrypoint.sh worker`, `JOBS_MODE=huey`) on the same volume.
 - **Vercel / nginx (frontend):** build with `VITE_API_URL` pointing at the API, or serve behind nginx which proxies
   `/api` to `api:8000` (see `frontend/nginx.conf`).

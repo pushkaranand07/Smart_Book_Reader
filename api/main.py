@@ -16,7 +16,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from api.config import Settings, get_settings
 from api.db import get_engine
 from api.errors import ErrorBody, ErrorResponse, install_error_handlers
-from api.jobs import resume_pending_jobs
+from api.jobs import resume_pending_jobs, shutdown_executors
 from api.limits import limiter
 from api.observability import RequestIdMiddleware, configure_logging, current_request_id, install_metrics
 from api.routes import books, health, jobs
@@ -81,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.warm_models_on_start:
             threading.Thread(target=_warm_models, name="model-warmup", daemon=True).start()
         yield
+        shutdown_executors()
 
     app = FastAPI(title="Smart Book Reader API", version="2.0.0", lifespan=lifespan)
     app.state.limiter = limiter

@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     rate_limit_upload: str = "10/minute"
     rate_limit_ask: str = "60/minute"
 
-    # "huey" = separate worker process (production), "thread" = in-process background thread (local dev),
-    # "immediate" = run inline (tests).
-    jobs_mode: Literal["huey", "thread", "immediate"] = "thread"
+    # "process" = low-priority worker process started by the API (default, single command),
+    # "huey" = separate durable worker service (compose), "thread" = in-process thread, "immediate" = inline (tests).
+    jobs_mode: Literal["process", "huey", "thread", "immediate"] = "process"
     book_cache_size: int = 8
 
     gemini_api_key: str | None = None

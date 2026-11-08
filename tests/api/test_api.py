@@ -337,3 +337,51 @@ def test_keys_are_compared_by_hash_not_stored_plain():
 
 def test_owner_cannot_reach_other_owner_job_via_keys():
     assert KEYS["alice"] != KEYS["bob"]
+
+
+# ------------------------------------------------------------------ background worker process
+
+
+def test_process_mode_dispatches_to_low_priority_worker(monkeypatch: pytest.MonkeyPatch):
+    import api.jobs as jobs
+    from api.config import get_settings
+
+    submitted: list[tuple] = []
+
+    class FakeExecutor:
+        def submit(self, fn, *args):
+            submitted.append((fn, args))
+
+    monkeypatch.setenv("JOBS_MODE", "process")
+    get_settings.cache_clear()
+    monkeypatch.setattr(jobs, "_worker_process_executor", lambda: FakeExecutor())
+    jobs.dispatch("job_x")
+    assert submitted == [(jobs._run_in_worker_process, ("job_x",))]
+    get_settings.cache_clear()
+
+
+def test_lower_process_priority_is_safe_to_call(monkeypatch: pytest.MonkeyPatch):
+    import os
+    import sys
+
+    import api.jobs as jobs
+
+    calls: list[object] = []
+    if sys.platform == "win32":
+        import ctypes
+
+        class K32:
+            def GetCurrentProcess(self):
+                return 1
+
+            def SetPriorityClass(self, handle, cls):
+                calls.append(cls)
+                return 1
+
+        monkeypatch.setattr(ctypes, "windll", type("W", (), {"kernel32": K32()})(), raising=False)
+        jobs.lower_process_priority()
+        assert calls == [0x00004000]
+    else:
+        monkeypatch.setattr(os, "nice", lambda n: calls.append(n))
+        jobs.lower_process_priority()
+        assert calls == [10]

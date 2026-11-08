@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any
 
 import pymupdf
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _executor_lock = threading.Lock()
 _executor: ThreadPoolExecutor | None = None
+_process_executor: ProcessPoolExecutor | None = None
 PROCESSING_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
     RuntimeError,
@@ -114,10 +116,53 @@ def _thread_executor() -> ThreadPoolExecutor:
         return _executor
 
 
+def lower_process_priority() -> None:
+    """Run book processing below normal CPU priority so question answering stays responsive.
+
+    OCR and embedding use every core; at normal priority a large upload made questions take minutes.
+    """
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            below_normal = 0x00004000
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), below_normal)
+        else:
+            os.nice(10)
+    except (OSError, AttributeError) as exc:
+        logger.warning("could not lower worker priority: %s", exc)
+
+
+def _run_in_worker_process(job_id: str) -> None:
+    run_processing(job_id)
+
+
+def _worker_process_executor() -> ProcessPoolExecutor:
+    global _process_executor
+    with _executor_lock:
+        if _process_executor is None:
+            _process_executor = ProcessPoolExecutor(max_workers=1, initializer=lower_process_priority)
+        return _process_executor
+
+
+def shutdown_executors() -> None:
+    global _process_executor, _executor
+    with _executor_lock:
+        if _process_executor is not None:
+            _process_executor.shutdown(wait=False, cancel_futures=True)
+            _process_executor = None
+        if _executor is not None:
+            _executor.shutdown(wait=False, cancel_futures=True)
+            _executor = None
+
+
 def dispatch(job_id: str, settings: Settings | None = None) -> None:
     settings = settings or get_settings()
     if settings.jobs_mode == "immediate":
         run_processing(job_id, settings)
+    elif settings.jobs_mode == "process":
+        _worker_process_executor().submit(_run_in_worker_process, job_id)
     elif settings.jobs_mode == "thread":
         _thread_executor().submit(run_processing, job_id, settings)
     else:
@@ -127,9 +172,9 @@ def dispatch(job_id: str, settings: Settings | None = None) -> None:
 
 
 def resume_pending_jobs(settings: Settings | None = None) -> int:
-    """Re-dispatch jobs left queued/running by a previous process (thread mode has no durable queue)."""
+    """Re-dispatch jobs left queued/running by a previous process (thread/process modes have no durable queue)."""
     settings = settings or get_settings()
-    if settings.jobs_mode != "thread":
+    if settings.jobs_mode not in {"thread", "process"}:
         return 0
     with Session(get_engine()) as session:
         pending = session.exec(select(Job).where(Job.status.in_(["queued", "running"]))).all()  # type: ignore[attr-defined]

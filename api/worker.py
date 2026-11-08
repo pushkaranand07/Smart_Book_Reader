@@ -19,6 +19,10 @@ configure_logging(_settings.log_level, _settings.log_json)
 # Same model settings as the API process (create_app does this for uvicorn).
 os.environ.setdefault("QA_INDEX_DIR", str(_settings.index_dir))
 os.environ.setdefault("FLORENCE_MODE", _settings.florence_mode)
+# Same rule as the in-API worker process: processing must never starve question answering.
+from api.jobs import lower_process_priority  # noqa: E402
+
+lower_process_priority()
 huey = SqliteHuey(name="smart-book-reader", filename=str(_settings.data_dir / "queue.db"))
 
 
